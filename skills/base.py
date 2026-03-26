@@ -71,10 +71,50 @@ class SkillPack(ABC):
 
     def matches_intent(self, user_input: str) -> float:
         """Score 0.0-1.0 how well this skill matches user input.
-        Default: keyword matching. Override for embedding-based.
+
+        Matching strategy:
+        - Tokenize input into words + keep hyphenated forms
+        - Short keywords (tickers): exact word match
+        - Hyphenated keywords (btc-usd): substring match
+        - Longer keywords: check if keyword appears in any word or vice versa
+        - Need at least 2 matches for confidence
+
+        Override for embedding-based matching in the future.
         """
-        input_lower = user_input.lower()
-        matches = sum(1 for kw in self.keywords if kw in input_lower)
         if not self.keywords:
             return 0.0
-        return min(1.0, matches / max(1, len(self.keywords) * 0.3))
+
+        input_lower = user_input.lower()
+        # Tokenize: split on spaces, commas, periods — keep hyphens intact
+        input_words = set(input_lower.replace(",", " ").replace(".", " ").replace(":", " ").split())
+        # Also add the raw input for substring matching of hyphenated terms
+        input_joined = " " + input_lower + " "
+
+        matches = 0
+        for kw in self.keywords:
+            kw_lower = kw.lower()
+            if "-" in kw_lower:
+                # Hyphenated (btc-usd, eth-usd): substring in raw input
+                if kw_lower in input_lower:
+                    matches += 1
+            elif len(kw_lower) <= 4:
+                # Short keywords (tickers like aapl, btc, rsi, ema):
+                # must be a standalone word to avoid false positives
+                if kw_lower in input_words:
+                    matches += 1
+            else:
+                # Longer keywords (stock, trading, strategy, backtest, analyze):
+                # check if keyword is contained in any input word or vice versa
+                for w in input_words:
+                    if len(w) < 3:
+                        continue
+                    if kw_lower in w or w in kw_lower:
+                        matches += 1
+                        break
+
+        # Scoring: need at least 2 matches for confidence
+        if matches < 2:
+            return matches * 0.15
+        # Scale by match count, not keyword list size
+        # 2 matches = 0.5, 3 = 0.7, 4+ = 0.85+
+        return min(1.0, 0.3 + matches * 0.15)

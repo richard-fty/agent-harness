@@ -125,6 +125,25 @@ class SkillLoader:
             return [s.heading for s in analyzed.reference_sections]
         return []
 
+    def pre_load_by_intent(self, user_input: str, threshold: float = 0.4) -> list[str]:
+        """Pre-load skills that match the user's input before the first LLM call.
+
+        This saves one tool-call round-trip — the agent gets the skill's tools
+        and prompt immediately instead of having to call load_skill() first.
+
+        Returns list of skill names that were pre-loaded.
+        """
+        pre_loaded = []
+        for name, skill in self.available.items():
+            if name in self.loaded:
+                continue
+            score = skill.matches_intent(user_input)
+            if score >= threshold:
+                if self.load_skill(name):
+                    pre_loaded.append(name)
+                    logger.debug("Pre-loaded skill '%s' (score: %.2f)", name, score)
+        return pre_loaded
+
     def get_loaded_skill_names(self) -> list[str]:
         return list(self.loaded.keys())
 

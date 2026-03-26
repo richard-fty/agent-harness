@@ -100,6 +100,15 @@ class AgentSession:
     async def run_turn(self, user_input: str) -> str | None:
         """Process one user turn — may involve multiple LLM calls + tool calls."""
         self.turn_count += 1
+
+        # Pre-load skills by intent before first LLM call
+        pre_loaded = self.skill_loader.pre_load_by_intent(user_input)
+        if pre_loaded:
+            new_prompt = build_system_prompt(self.skill_loader)
+            self.messages[0] = {"role": "system", "content": new_prompt}
+            for name in pre_loaded:
+                console.print(f"  [dim]Skill auto-loaded: {name}[/dim]")
+
         self.messages.append({"role": "user", "content": user_input})
 
         guard = RuntimeGuard(self.runtime_config)

@@ -26,12 +26,23 @@ class StockStrategySkill(SkillPack):
     @property
     def keywords(self) -> list[str]:
         return [
+            # Domain
             "stock", "stocks", "crypto", "cryptocurrency", "bitcoin", "ethereum",
-            "aapl", "tsla", "goog", "msft", "amzn", "btc", "eth", "sol",
+            "trading", "strategy", "backtest", "portfolio", "invest", "investment",
+            "price", "chart", "candlestick", "indicator", "signal", "market",
+            "analyze", "analysis", "ticker", "symbol",
+            # Tickers
+            "aapl", "tsla", "goog", "msft", "amzn", "nvda", "meta",
+            "btc", "eth", "sol", "doge",
+            # Crypto pairs
+            "btc-usd", "eth-usd", "sol-usd",
+            # Company names (so "Tesla" matches)
+            "apple", "tesla", "google", "microsoft", "amazon", "nvidia",
+            # Commodities & common assets
+            "gold", "silver", "oil", "spy", "qqq",
+            # Indicators
             "rsi", "macd", "bollinger", "moving average", "sma", "ema",
-            "trading", "strategy", "backtest", "portfolio", "invest",
-            "price", "chart", "candlestick", "indicator", "signal",
-            "analyze", "ticker", "symbol", "market",
+            "oversold", "overbought", "sharpe", "drawdown",
         ]
 
     def get_tools(self) -> list[tuple[ToolDef, ToolHandler]]:

@@ -413,6 +413,17 @@ class AgentHarnessApp(App):
         thinking.show("Thinking")
 
         self._turn_count += 1
+
+        # Pre-load skills by intent before first LLM call
+        pre_loaded = self._skill_loader.pre_load_by_intent(user_input)
+        if pre_loaded:
+            # Rebuild system prompt with newly loaded skills
+            new_prompt = build_system_prompt(self._skill_loader)
+            self._messages[0] = {"role": "system", "content": new_prompt}
+            for skill_name in pre_loaded:
+                output.info(f"  Skill auto-loaded: {skill_name}")
+            self._update_status()
+
         self._messages.append({"role": "user", "content": user_input})
 
         guard = RuntimeGuard(RuntimeConfig(
