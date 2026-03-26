@@ -34,6 +34,8 @@ from agent.models import AgentEvent, EventType, TokenUsage
 from agent.prompts import build_system_prompt
 from agent.skill_loader import SkillLoader
 from agent.tool_dispatch import ToolDispatch
+from harness.access_control import AccessController, AccessPolicy, get_policy, PRESET_POLICIES
+from harness.cost_tracker import CostTracker
 from harness.runtime import RuntimeConfig, RuntimeGuard
 from harness.token_tracker import extract_usage
 from harness.trace import Trace
@@ -50,7 +52,14 @@ _SKILL_MUTATING_TOOLS = {"load_skill", "unload_skill"}
 class AgentSession:
     """Persistent agent session — maintains state across conversation turns."""
 
-    def __init__(self, model: str, context_strategy: str, runtime_config: RuntimeConfig) -> None:
+    def __init__(
+        self,
+        model: str,
+        context_strategy: str,
+        runtime_config: RuntimeConfig,
+        access_policy: AccessPolicy | None = None,
+        cost_budget: float | None = None,
+    ) -> None:
         self.model = model
         self.context_strategy = context_strategy
         self.runtime_config = runtime_config
@@ -69,6 +78,14 @@ class AgentSession:
 
         # Context manager
         self.context_mgr = ContextManager(strategy_name=context_strategy, model=model)
+
+        # Harness: access control
+        self.access_controller = AccessController(
+            policy=access_policy or AccessPolicy()
+        )
+
+        # Harness: cost tracker
+        self.cost_tracker = CostTracker(model=model, budget_usd=cost_budget)
 
         # Conversation history (persists across turns)
         system_prompt = build_system_prompt(self.skill_loader)
@@ -125,6 +142,13 @@ class AgentSession:
             self.total_usage.total_tokens += usage.total_tokens
             self.total_usage.cost_usd += usage.cost_usd
 
+            # Cost tracking
+            self.cost_tracker.add_step(step, usage)
+            budget_error = self.cost_tracker.check_budget()
+            if budget_error:
+                console.print(f"\n[bold red]{budget_error}[/bold red]")
+                break
+
             console.print(
                 f"[dim]  Response in {llm_ms:.0f}ms "
                 f"(in:{usage.prompt_tokens} out:{usage.completion_tokens} "
@@ -177,9 +201,13 @@ class AgentSession:
 
                     tool_start = time.time()
 
+                    # Access control check
+                    access_denied = self.access_controller.check(tool_call)
+                    if access_denied:
+                        result_content = f"Access denied: {access_denied}"
+                        result_success = False
                     # Validate
-                    validation_error = self.dispatch.validate_call(tool_call)
-                    if validation_error:
+                    elif (validation_error := self.dispatch.validate_call(tool_call)):
                         result_content = self.dispatch.retry_prompt(tool_call, validation_error)
                         result_success = False
                     else:
@@ -225,25 +253,41 @@ class AgentSession:
         """Print session status bar."""
         loaded = self.skill_loader.get_loaded_skill_names()
         skills_str = ", ".join(loaded) if loaded else "none"
+        denied = len(self.access_controller.denied_calls)
+        denied_str = f" | [red]Denied: {denied}[/red]" if denied else ""
+        budget_str = ""
+        if self.cost_tracker.budget_usd is not None:
+            remaining = self.cost_tracker.budget_usd - self.cost_tracker.total_cost_usd
+            budget_str = f" | Budget: ${remaining:.4f} left"
         console.print(
             f"[dim]Model: {self.model} | "
             f"Skills: {skills_str} | "
             f"Turns: {self.turn_count} | "
             f"Tokens: {self.total_usage.total_tokens} | "
-            f"Cost: ${self.total_usage.cost_usd:.4f}[/dim]"
+            f"Cost: ${self.cost_tracker.total_cost_usd:.4f}"
+            f"{budget_str}{denied_str}[/dim]"
         )
 
 
-async def interactive_mode(model: str, strategy: str, runtime: RuntimeConfig) -> None:
+async def interactive_mode(
+    model: str,
+    strategy: str,
+    runtime: RuntimeConfig,
+    access_policy: AccessPolicy | None = None,
+    cost_budget: float | None = None,
+) -> None:
     """Interactive REPL — chat with the agent like Claude Code."""
+    policy_name = "custom" if access_policy and access_policy.blocked_tools else "unrestricted"
+    budget_str = f"${cost_budget:.2f}" if cost_budget else "unlimited"
     console.print(Panel(
         f"[bold]Agent Harness[/bold] — Interactive Mode\n"
-        f"Model: {model}\n"
-        f"Type your message. Commands: /status, /skills, /quit",
+        f"Model: {model} | Strategy: {strategy}\n"
+        f"Policy: {policy_name} | Budget: {budget_str}\n"
+        f"Commands: /status, /skills, /costs, /access, /quit",
         border_style="magenta",
     ))
 
-    session = AgentSession(model, strategy, runtime)
+    session = AgentSession(model, strategy, runtime, access_policy, cost_budget)
 
     while True:
         try:
@@ -269,6 +313,24 @@ async def interactive_mode(model: str, strategy: str, runtime: RuntimeConfig) ->
             console.print(f"Available: {', '.join(available)}")
             console.print(f"Loaded: {', '.join(loaded) if loaded else 'none'}")
             continue
+        elif user_input.lower() == "/costs":
+            summary = session.cost_tracker.summary()
+            table = Table(title="Cost Summary", border_style="blue")
+            table.add_column("Metric", style="bold")
+            table.add_column("Value")
+            for k, v in summary.items():
+                table.add_row(k, str(v))
+            console.print(table)
+            continue
+        elif user_input.lower() == "/access":
+            summary = session.access_controller.summary()
+            console.print(f"Total calls: {summary['total_calls']}")
+            console.print(f"Call counts: {summary['call_counts']}")
+            if summary['denied_calls']:
+                console.print(f"[red]Denied: {summary['denied_calls']}[/red]")
+            else:
+                console.print("No denied calls")
+            continue
 
         # Run agent turn
         console.print()
@@ -285,11 +347,18 @@ async def interactive_mode(model: str, strategy: str, runtime: RuntimeConfig) ->
         session.print_status()
 
 
-async def single_shot_mode(prompt: str, model: str, strategy: str, runtime: RuntimeConfig) -> None:
+async def single_shot_mode(
+    prompt: str,
+    model: str,
+    strategy: str,
+    runtime: RuntimeConfig,
+    access_policy: AccessPolicy | None = None,
+    cost_budget: float | None = None,
+) -> None:
     """Single-shot mode — one prompt, one response."""
     console.print(Panel(f"[bold]{prompt}[/bold]", title="[bold magenta]Agent Harness[/bold magenta]", border_style="magenta"))
 
-    session = AgentSession(model, strategy, runtime)
+    session = AgentSession(model, strategy, runtime, access_policy, cost_budget)
     output = await session.run_turn(prompt)
 
     if output:
@@ -310,14 +379,19 @@ async def main() -> None:
     parser.add_argument("--strategy", "-s", default=settings.context_strategy, help="Context strategy")
     parser.add_argument("--max-steps", type=int, default=settings.max_steps, help="Max steps per turn")
     parser.add_argument("--timeout", type=int, default=settings.timeout_seconds, help="Timeout per turn")
+    parser.add_argument("--policy", "-p", default="unrestricted",
+                        help=f"Access policy: {', '.join(PRESET_POLICIES.keys())}")
+    parser.add_argument("--budget", type=float, default=None,
+                        help="Cost budget in USD (e.g. 0.05)")
     args = parser.parse_args()
 
     runtime = RuntimeConfig(max_steps=args.max_steps, timeout_seconds=args.timeout)
+    access_policy = get_policy(args.policy)
 
     if args.prompt:
-        await single_shot_mode(args.prompt, args.model, args.strategy, runtime)
+        await single_shot_mode(args.prompt, args.model, args.strategy, runtime, access_policy, args.budget)
     else:
-        await interactive_mode(args.model, args.strategy, runtime)
+        await interactive_mode(args.model, args.strategy, runtime, access_policy, args.budget)
 
 
 if __name__ == "__main__":
