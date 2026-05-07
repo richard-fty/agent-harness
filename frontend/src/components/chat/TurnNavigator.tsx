@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../../store";
 import { getJSON } from "../../lib/api";
-import type { TurnSummary } from "../../types";
+import type { AgentEvent, TurnSummary } from "../../types";
 
 export function TurnNavigator({ sessionId }: { sessionId: string }) {
   const turns = useStore((s) => s.turnsBySession[sessionId] ?? []);
+  const itemCount = useStore((s) => s.sessions[sessionId]?.items.length ?? 0);
   const setTurns = useStore((s) => s.setTurns);
+  const replaceSessionEvents = useStore((s) => s.replaceSessionEvents);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [hoveredTurnId, setHoveredTurnId] = useState<string | null>(null);
+  const [loadingHistoryTurnId, setLoadingHistoryTurnId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,21 +30,27 @@ export function TurnNavigator({ sessionId }: { sessionId: string }) {
   }, [sessionId, setTurns]);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        const turnId = visible?.target.getAttribute("data-turn-id");
-        if (turnId) setActiveTurnId(turnId);
-      },
-      { root: null, rootMargin: "-35% 0px -50% 0px", threshold: [0, 0.25, 0.5] },
-    );
-    document.querySelectorAll<HTMLElement>("[data-turn-id]").forEach((el) => {
-      observer.observe(el);
-    });
-    return () => observer.disconnect();
-  }, [turns.length]);
+    const root = getScrollRoot(sessionId);
+    if (!root) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const next = findActiveTurnId(root);
+      if (next) setActiveTurnId(next);
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(update);
+    };
+    update();
+    root.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      root.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [sessionId, itemCount, turns.length]);
 
   const orderedTurns = useMemo(
     () => [...turns].sort((a, b) => a.started_seq - b.started_seq),
@@ -72,9 +81,26 @@ export function TurnNavigator({ sessionId }: { sessionId: string }) {
               onMouseLeave={() => setHoveredTurnId(null)}
               onFocus={() => setHoveredTurnId(turn.turn_id)}
               onBlur={() => setHoveredTurnId(null)}
-              onClick={() => {
-                scrollToTurn(turn.turn_id);
+              onClick={async () => {
+                const didScroll = scrollToTurn(sessionId, turn.turn_id);
                 setActiveTurnId(turn.turn_id);
+                if (didScroll) return;
+
+                setLoadingHistoryTurnId(turn.turn_id);
+                try {
+                  const events = await getJSON<AgentEvent[]>(
+                    `/sessions/${encodeURIComponent(sessionId)}/events/history?limit=10000`,
+                  );
+                  replaceSessionEvents(sessionId, events);
+                  requestAnimationFrame(() => {
+                    scrollToTurn(sessionId, turn.turn_id);
+                    setActiveTurnId(turn.turn_id);
+                  });
+                } catch (err) {
+                  console.warn("Failed to hydrate turn history", err);
+                } finally {
+                  setLoadingHistoryTurnId(null);
+                }
               }}
             />
           );
@@ -85,6 +111,11 @@ export function TurnNavigator({ sessionId }: { sessionId: string }) {
           <div className="truncate text-xs font-medium text-foreground">
             {hoveredTurn.user_preview || "Untitled turn"}
           </div>
+          {loadingHistoryTurnId === hoveredTurn.turn_id && (
+            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">
+              Loading turn history...
+            </div>
+          )}
           {hoveredTurn.assistant_preview && (
             <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
               {hoveredTurn.assistant_preview}
@@ -96,10 +127,40 @@ export function TurnNavigator({ sessionId }: { sessionId: string }) {
   );
 }
 
-function scrollToTurn(turnId: string) {
-  const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(turnId) : turnId;
-  const el = document.querySelector(`[data-turn-id="${escaped}"]`);
-  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+function scrollToTurn(sessionId: string, turnId: string): boolean {
+  const root = getScrollRoot(sessionId);
+  const el = root?.querySelector<HTMLElement>(`[data-turn-id="${escapeCss(turnId)}"]`);
+  if (!root || !el) return false;
+  const rootTop = root.getBoundingClientRect().top;
+  const elTop = el.getBoundingClientRect().top;
+  root.scrollTo({
+    top: root.scrollTop + elTop - rootTop - 24,
+    behavior: "smooth",
+  });
+  return true;
+}
+
+function findActiveTurnId(root: HTMLElement): string | null {
+  const anchors = Array.from(root.querySelectorAll<HTMLElement>("[data-turn-id]"));
+  if (anchors.length === 0) return null;
+  const rootTop = root.getBoundingClientRect().top;
+  const marker = rootTop + Math.min(160, root.clientHeight * 0.3);
+  let active = anchors[0];
+  for (const anchor of anchors) {
+    if (anchor.getBoundingClientRect().top <= marker) active = anchor;
+    else break;
+  }
+  return active.getAttribute("data-turn-id");
+}
+
+function getScrollRoot(sessionId: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `[data-chat-scroll-root="${escapeCss(sessionId)}"]`,
+  );
+}
+
+function escapeCss(value: string): string {
+  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value;
 }
 
 function statusClass(status: TurnSummary["status"]) {

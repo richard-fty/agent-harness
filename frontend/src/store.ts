@@ -40,6 +40,7 @@ export interface ToolCallRecord {
  * `ui` bag so replaying events doesn't stomp user choices. */
 export interface SessionState {
   items: ChatItem[];
+  seenSeqs: Record<number, true>;
   toolCalls: Record<string, ToolCallRecord>;
   artifacts: Record<string, Artifact>;
   artifactOrder: string[];
@@ -58,6 +59,7 @@ export interface SessionState {
 
 const emptySession = (): SessionState => ({
   items: [],
+  seenSeqs: {},
   toolCalls: {},
   artifacts: {},
   artifactOrder: [],
@@ -90,6 +92,7 @@ interface State {
   setActiveSessionId: (id: string | null) => void;
 
   setTurns: (sessionId: string, turns: TurnSummary[]) => void;
+  replaceSessionEvents: (sessionId: string, events: AgentEvent[]) => void;
   ingest: (sessionId: string, ev: AgentEvent) => void;
   resetSession: (sessionId: string) => void;
 
@@ -200,6 +203,16 @@ export const useStore = create<State>()((set, get) => ({
       },
     })),
 
+  replaceSessionEvents: (sid, events) => {
+    set((s) => ({
+      sessions: { ...s.sessions, [sid]: emptySession() },
+      turnsBySession: { ...s.turnsBySession, [sid]: [] },
+    }));
+    for (const ev of [...events].sort((a, b) => a.seq - b.seq)) {
+      get().ingest(sid, ev);
+    }
+  },
+
   resetSession: (sid) =>
     set((s) => ({
       sessions: { ...s.sessions, [sid]: emptySession() },
@@ -212,6 +225,8 @@ export const useStore = create<State>()((set, get) => ({
     const turnsBySession = { ...get().turnsBySession };
     const turnList = [...(turnsBySession[sid] ?? [])];
     st.items = [...st.items];
+    if (ev.seq > 0 && st.seenSeqs[ev.seq]) return;
+    st.seenSeqs = { ...st.seenSeqs };
     st.toolCalls = { ...st.toolCalls };
     st.artifacts = { ...st.artifacts };
     st.pendingArtifactIds = [...st.pendingArtifactIds];
@@ -574,6 +589,7 @@ export const useStore = create<State>()((set, get) => ({
         break;
     }
 
+    if (ev.seq > 0) st.seenSeqs[ev.seq] = true;
     sessions[sid] = st;
     turnsBySession[sid] = turnList.sort((a, b) => a.started_seq - b.started_seq);
     set({ sessions, turnsBySession });

@@ -24,7 +24,11 @@ export function ChatPane({ sessionId }: { sessionId: string }) {
   }
 
   return (
-    <div ref={scrollRef} className="h-full min-h-0 overflow-y-auto">
+    <div
+      ref={scrollRef}
+      data-chat-scroll-root={sessionId}
+      className="h-full min-h-0 overflow-y-auto"
+    >
       <PlanCard sessionId={sessionId} />
       <div className="mx-auto max-w-3xl px-6 pt-8 pb-32 space-y-4">
         {session.disclaimer && (

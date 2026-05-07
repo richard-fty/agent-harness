@@ -38,6 +38,26 @@ async def load_replay_events(state: AppState, session_id: str, since_seq: int) -
     return await state.session_store.list_events(session_id, since_seq=since_seq)
 
 
+@router.get("/{session_id}/events/history")
+async def list_event_history(
+    session_id: str,
+    since_seq: int = 0,
+    limit: int = 5000,
+    user: User = Depends(require_user),
+    state: AppState = Depends(get_state),
+) -> list[AgentEvent]:
+    """Return durable typed events for rebuilding older turns in the UI.
+
+    The live SSE route intentionally replays only the current turn on a fresh
+    connection. The turn navigator uses this history endpoint when a user jumps
+    to an older turn whose DOM anchor has not been hydrated yet.
+    """
+    await owned_session(session_id, user, state)
+    safe_limit = max(1, min(limit, 10000))
+    events = await load_replay_events(state, session_id, since_seq)
+    return events[:safe_limit]
+
+
 async def last_turn_cutoff(state: AppState, session_id: str) -> int:
     """Seq immediately before the most recent durable turn_started event."""
 
