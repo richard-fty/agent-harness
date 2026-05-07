@@ -100,6 +100,12 @@ class PlanManager:
 
         return f"Plan updated: {len(self.tasks)} tasks ({self.create_count}/{MAX_CREATES} creates used)."
 
+    def clear(self) -> None:
+        """Clear the current plan so a runtime-generated workflow can replace it."""
+        self.tasks = {}
+        self.create_count = 0
+        self._root_id = None
+
     def update(self, task_id: str, status: str, note: str = "") -> str:
         """Update a task's status. Enforces transitions and dependencies."""
         status = _normalize_status(status)

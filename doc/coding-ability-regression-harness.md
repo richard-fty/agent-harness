@@ -855,7 +855,7 @@ These artifacts make failures debuggable and let humans inspect why one agent ve
 
 ### Phase 3: Regression Dashboard
 
-- Store task execution results in Postgres or SQLite.
+- Store task execution results in Postgres.
 - Compare baseline vs candidate agent versions.
 - Show pass rate, severe failures, score deltas, cost, and latency.
 - Add release-blocking thresholds.

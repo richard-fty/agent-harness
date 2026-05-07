@@ -27,6 +27,13 @@ _WEB_FALLBACK_HINTS = (
     "最近", "最新", "对比", "比较", "新闻", "当前", "来源", "调研", "研究",
 )
 
+_STOCK_REQUEST_HINTS = (
+    "stock", "stocks", "ticker", "equity", "share price", "market cap",
+    "rsi", "macd", "bollinger", "sma", "ema", "backtest",
+    "aapl", "tsla", "smci", "nvda", "msft", "amzn", "meta", "goog", "googl",
+    "btc", "eth", "crypto",
+)
+
 
 class ResearchPolicy:
     """Decide when to gather hidden research evidence and expose write tools."""
@@ -38,6 +45,9 @@ class ResearchPolicy:
     async def evaluate(self, user_input: str) -> ResearchContext:
         text = (user_input or "").strip()
         if not text:
+            return ResearchContext()
+
+        if self._is_stock_request(text):
             return ResearchContext()
 
         if self._should_surface_runtime_tools(text):
@@ -78,6 +88,10 @@ class ResearchPolicy:
         lowered = text.lower()
         return any(hint in lowered for hint in _WEB_FALLBACK_HINTS)
 
+    def _is_stock_request(self, text: str) -> bool:
+        lowered = text.lower()
+        return any(hint in lowered for hint in _STOCK_REQUEST_HINTS)
+
 
 RetrievalPolicy = ResearchPolicy
 RetrievalContext = ResearchContext
@@ -103,3 +117,8 @@ def _should_ingest_for(text: str) -> bool:
 def _should_prefer_web_for(text: str) -> bool:
     lowered = (text or "").lower()
     return any(hint in lowered for hint in _WEB_FIRST_HINTS)
+
+
+def _is_stock_request_for(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(hint in lowered for hint in _STOCK_REQUEST_HINTS)

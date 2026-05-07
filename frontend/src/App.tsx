@@ -1,9 +1,8 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthPage } from "./components/auth/AuthPage";
 import { RequireAuth } from "./components/auth/RequireAuth";
-import { HomePage } from "./pages/HomePage";
 import { LandingPage } from "./pages/LandingPage";
-import { OnboardingPage } from "./pages/OnboardingPage";
+import { ChatEntryPage } from "./pages/OnboardingPage";
 import { PrivacyPage } from "./pages/PrivacyPage";
 import { SessionPage } from "./pages/SessionPage";
 import { TermsPage } from "./pages/TermsPage";
@@ -22,19 +21,12 @@ export function App() {
         <Route path="/register" element={<AuthPage mode="register" />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
+        <Route path="/dashboard" element={<Navigate to="/chat" replace />} />
         <Route
-          path="/dashboard"
+          path="/chat"
           element={
             <RequireAuth>
-              <HomePage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/onboarding"
-          element={
-            <RequireAuth>
-              <OnboardingPage />
+              <ChatEntryPage />
             </RequireAuth>
           }
         />

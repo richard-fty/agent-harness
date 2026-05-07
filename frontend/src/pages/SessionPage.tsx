@@ -5,14 +5,18 @@ import { useStore } from "../store";
 import { useSSE } from "../hooks/useSSE";
 import { ChatPane } from "../components/chat/ChatPane";
 import { Composer } from "../components/chat/Composer";
+import { TurnNavigator } from "../components/chat/TurnNavigator";
 import { ArtifactPanel } from "../components/artifacts/ArtifactPanel";
 import { TopBar } from "../components/TopBar";
 import { SkillsStrip } from "../components/skills/SkillsStrip";
+import { SessionSidebar } from "../components/session/SessionSidebar";
 import { FinancialProfileForm } from "../components/onboarding/FinancialProfileForm";
 import { Button } from "../components/ui/button";
 import { getJSONOrNull, postJSON } from "../lib/api";
 import { buildWealthPrompt } from "../lib/wealthPrompt";
 import type { FinancialProfile } from "../types";
+
+const ENABLE_WEALTH_GUIDE = false;
 
 export function SessionPage() {
   const { sessionId } = useParams();
@@ -32,6 +36,10 @@ export function SessionPage() {
   }, [sessionId, session, resetSession, setActiveSessionId]);
 
   useEffect(() => {
+    if (!ENABLE_WEALTH_GUIDE) {
+      setProfileLoading(false);
+      return;
+    }
     let cancelled = false;
     setProfileLoading(true);
     (async () => {
@@ -68,6 +76,7 @@ export function SessionPage() {
   const needsMinimumWealthInput =
     !hasMinimumWealthInput(profile) || asksForMinimumWealthInput(latestAssistantMessage);
   const showWealthIntake =
+    ENABLE_WEALTH_GUIDE &&
     !!session &&
     session.loadedSkills.includes("wealth_guide") &&
     !session.pending &&
@@ -79,6 +88,7 @@ export function SessionPage() {
     [latestAssistantMessage]
   );
   const showPathChoice =
+    ENABLE_WEALTH_GUIDE &&
     !!session &&
     session.loadedSkills.includes("wealth_guide") &&
     !session.pending &&
@@ -100,6 +110,7 @@ export function SessionPage() {
     <div className="h-screen flex flex-col bg-background">
       <TopBar />
       <div className="flex-1 flex overflow-hidden">
+        <SessionSidebar activeSessionId={sessionId} />
         <LayoutGroup id="session-layout">
           <div className="flex-1 flex flex-col min-w-0 relative">
             <AnimatePresence mode="wait">
@@ -314,11 +325,16 @@ function ChatSurface({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.25 }}
     >
-      <ChatPane sessionId={sessionId} />
-      <SkillsStrip sessionId={sessionId} />
-      <motion.div layoutId="composer-shell" transition={SPRING}>
-        {composerOverride ?? <Composer sessionId={sessionId} />}
-      </motion.div>
+      <div className="relative flex-1 min-h-0 overflow-hidden">
+        <ChatPane sessionId={sessionId} />
+        <TurnNavigator sessionId={sessionId} />
+      </div>
+      <div className="shrink-0 bg-background">
+        <SkillsStrip sessionId={sessionId} />
+        <motion.div layoutId="composer-shell" transition={SPRING}>
+          {composerOverride ?? <Composer sessionId={sessionId} />}
+        </motion.div>
+      </div>
     </motion.div>
   );
 }

@@ -265,14 +265,16 @@ class DockerSandbox(BaseSandbox):
             "--workdir", self.work_dir,
             "--user", f"{os.getuid()}:{os.getgid()}",
             "--env", f"HOME={self.work_dir}",
+            "--env", "COREPACK_HOME=/pnpm-store/corepack",
             "--env", "PNPM_STORE_DIR=/pnpm-store",
             "--env-file", "/dev/null",
         ]
         for mount in self.mounts:
             mode = "ro" if mount.read_only else "rw"
             argv.extend(["-v", f"{mount.source}:{mount.target}:{mode}"])
+        pnpm_store_mounted = any(mount.target == "/pnpm-store" for mount in self.mounts)
         pnpm_store = Path.home() / ".local/share/pnpm/store"
-        if pnpm_store.exists():
+        if not pnpm_store_mounted and pnpm_store.exists():
             argv.extend(["-v", f"{pnpm_store}:/pnpm-store:rw"])
         argv.extend([self.image, "sh", "-c", command])
         proc = await asyncio.create_subprocess_exec(

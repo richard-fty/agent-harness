@@ -30,6 +30,7 @@ from agent.events import (
     TurnFinished,
     TurnStarted,
     UsageEvent,
+    WorkflowPlanUpdated,
 )
 from agent.events.schema import AgentEvent as TypedAgentEvent
 from agent.runtime.guards import RuntimeConfig, RuntimeGuard
@@ -61,12 +62,18 @@ def _translate(event: TypedAgentEvent) -> RunnerEvent | None:
     if isinstance(event, ToolStarted):
         return RunnerEvent(
             "tool_started",
-            {"name": event.name, "arguments": event.arguments, "step": event.step},
+            {
+                "tool_call_id": event.tool_call_id,
+                "name": event.name,
+                "arguments": event.arguments,
+                "step": event.step,
+            },
         )
     if isinstance(event, ToolFinished):
         return RunnerEvent(
             "tool_finished",
             {
+                "tool_call_id": event.tool_call_id,
                 "name": event.name,
                 "arguments": event.arguments,
                 "success": event.success,
@@ -75,7 +82,14 @@ def _translate(event: TypedAgentEvent) -> RunnerEvent | None:
             },
         )
     if isinstance(event, ToolDenied):
-        return RunnerEvent("tool_denied", {"name": event.name, "reason": event.reason})
+        return RunnerEvent(
+            "tool_denied",
+            {
+                "tool_call_id": event.tool_call_id,
+                "name": event.name,
+                "reason": event.reason,
+            },
+        )
     if isinstance(event, ApprovalRequested):
         return RunnerEvent(
             "approval_requested",
@@ -97,7 +111,15 @@ def _translate(event: TypedAgentEvent) -> RunnerEvent | None:
     if isinstance(event, PlanUpdated):
         return RunnerEvent(
             "plan_updated",
-            {"steps": [s.model_dump() for s in event.steps]},
+            {"steps": [s.model_dump() for s in event.steps], "kind": event.kind},
+        )
+    if isinstance(event, WorkflowPlanUpdated):
+        return RunnerEvent(
+            "workflow_plan_updated",
+            {
+                "steps": [s.model_dump() for s in event.steps],
+                "skill_name": event.skill_name,
+            },
         )
     return None
 
@@ -181,10 +203,18 @@ class SharedTurnRunner:
 
     # ---- background execution --------------------------------------------
 
-    async def _run_turn_task(self, user_input: str) -> None:
+    async def _run_turn_task(
+        self,
+        user_input: str,
+        display_user_input: str | None = None,
+    ) -> None:
         guard = RuntimeGuard(self.runtime.runtime_config)
         try:
-            async for _ in self.runtime.start_turn(user_input, guard=guard):
+            async for _ in self.runtime.start_turn(
+                user_input,
+                guard=guard,
+                display_user_input=display_user_input,
+            ):
                 pass
         except Exception as exc:
             # Make sure subscribers don't hang on an unhandled task exception.
@@ -218,17 +248,29 @@ class SharedTurnRunner:
             )
             raise
 
-    def start_turn_background(self, user_input: str) -> None:
+    def start_turn_background(
+        self,
+        user_input: str,
+        *,
+        display_user_input: str | None = None,
+    ) -> None:
         """Kick off a turn without blocking; callers subscribe to the bus."""
-        self._active_task = asyncio.create_task(self._run_turn_task(user_input))
+        self._active_task = asyncio.create_task(
+            self._run_turn_task(user_input, display_user_input)
+        )
 
     def resume_pending_background(self, action: str) -> None:
         self._active_task = asyncio.create_task(self._resume_turn_task(action))
 
     # ---- foreground stream API (TUI/CLI) ---------------------------------
 
-    async def start_turn(self, user_input: str) -> AsyncIterator[RunnerEvent]:
-        self.start_turn_background(user_input)
+    async def start_turn(
+        self,
+        user_input: str,
+        *,
+        display_user_input: str | None = None,
+    ) -> AsyncIterator[RunnerEvent]:
+        self.start_turn_background(user_input, display_user_input=display_user_input)
         try:
             async for event in SessionEventStream(self._event_bus, self.session_id).stream():
                 yield event

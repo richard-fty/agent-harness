@@ -54,7 +54,7 @@ Why this is a gap:
 
 What exists already:
 
-- `agent/session/archive.py` implements an append-only SQLite event log with sequence numbers and positional reads
+- `agent/session/archive.py` implements an append-only Postgres event log with sequence numbers and positional reads
 
 What is missing:
 

@@ -27,14 +27,16 @@ export type AgentEvent =
   | (AgentEventBase & { type: "stream_end"; final_state: "completed" | "waiting_approval" | "failed" | "cancelled"; reason: string | null })
   | (AgentEventBase & { type: "error"; message: string })
   | (AgentEventBase & { type: "assistant_token"; text: string })
+  | (AgentEventBase & { type: "assistant_snapshot"; content: string })
   | (AgentEventBase & { type: "assistant_message"; content: string })
   | (AgentEventBase & { type: "assistant_note"; text: string })
   | (AgentEventBase & { type: "education_disclaimer"; message: string; scope: "education" })
   | (AgentEventBase & { type: "skill_auto_loaded"; skill_name: string })
-  | (AgentEventBase & { type: "plan_updated"; steps: PlanStep[] })
-  | (AgentEventBase & { type: "tool_started"; step: number; name: string; arguments: Record<string, unknown> })
-  | (AgentEventBase & { type: "tool_finished"; step: number; name: string; arguments: Record<string, unknown>; success: boolean; duration_ms: number; content: string; search_results?: SearchResultCard[] })
-  | (AgentEventBase & { type: "tool_denied"; name: string; reason: string })
+  | (AgentEventBase & { type: "workflow_plan_updated"; steps: PlanStep[]; skill_name: string })
+  | (AgentEventBase & { type: "plan_updated"; steps: PlanStep[]; kind?: PlanKind })
+  | (AgentEventBase & { type: "tool_started"; step: number; tool_call_id?: string | null; name: string; arguments: Record<string, unknown> })
+  | (AgentEventBase & { type: "tool_finished"; step: number; tool_call_id?: string | null; name: string; arguments: Record<string, unknown>; success: boolean; duration_ms: number; content: string; search_results?: SearchResultCard[] })
+  | (AgentEventBase & { type: "tool_denied"; tool_call_id?: string | null; name: string; reason: string })
   | (AgentEventBase & { type: "approval_requested"; step: number; tool_name: string; reason: string })
   | (AgentEventBase & { type: "approval_resolved"; tool_name: string; action: string })
   | (AgentEventBase & { type: "artifact_created"; artifact_id: string; kind: ArtifactKind; name: string; language: string | null; mime: string | null; description: string | null })
@@ -54,6 +56,7 @@ export interface TokenUsage {
 }
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "failed";
+export type PlanKind = "coding" | "task";
 
 export interface TodoItem {
   id: string;
@@ -69,6 +72,17 @@ export interface Session {
   context_strategy: string;
   state: string;
   created_at: number;
+}
+
+export interface TurnSummary {
+  turn_id: string;
+  started_at: number;
+  started_seq: number;
+  ended_at: number | null;
+  ended_seq: number | null;
+  status: "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
+  user_preview: string;
+  assistant_preview: string;
 }
 
 export interface User {

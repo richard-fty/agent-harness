@@ -77,6 +77,8 @@ def _is_feature_enabled(flag: str | None) -> bool:
         return True
     if flag == "enable_rag":
         return settings.enable_rag
+    if flag == "enable_rag_tools":
+        return settings.enable_rag and settings.enable_rag_tools
     return True
 
 

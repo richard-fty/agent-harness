@@ -60,6 +60,7 @@ class TodoItem(BaseModel):
 
 
 PlanStep = TodoItem
+PlanKind = Literal["coding", "task"]
 
 
 class SearchResultCard(BaseModel):
@@ -135,6 +136,11 @@ class AssistantToken(AgentEventBase):
     text: str
 
 
+class AssistantSnapshot(AgentEventBase):
+    type: Literal["assistant_snapshot"] = "assistant_snapshot"
+    content: str
+
+
 class AssistantMessage(AgentEventBase):
     type: Literal["assistant_message"] = "assistant_message"
     content: str
@@ -155,6 +161,13 @@ class SkillAutoLoaded(AgentEventBase):
 class PlanUpdated(AgentEventBase):
     type: Literal["plan_updated"] = "plan_updated"
     steps: list[PlanStep]
+    kind: PlanKind = "task"
+
+
+class WorkflowPlanUpdated(AgentEventBase):
+    type: Literal["workflow_plan_updated"] = "workflow_plan_updated"
+    steps: list[PlanStep]
+    skill_name: str
 
 
 class EducationDisclaimer(AgentEventBase):
@@ -171,6 +184,7 @@ class EducationDisclaimer(AgentEventBase):
 class ToolStarted(AgentEventBase):
     type: Literal["tool_started"] = "tool_started"
     step: int
+    tool_call_id: str | None = None
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
 
@@ -178,6 +192,7 @@ class ToolStarted(AgentEventBase):
 class ToolFinished(AgentEventBase):
     type: Literal["tool_finished"] = "tool_finished"
     step: int
+    tool_call_id: str | None = None
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
     success: bool
@@ -188,6 +203,7 @@ class ToolFinished(AgentEventBase):
 
 class ToolDenied(AgentEventBase):
     type: Literal["tool_denied"] = "tool_denied"
+    tool_call_id: str | None = None
     name: str
     reason: str
 
@@ -300,9 +316,11 @@ AgentEvent = Annotated[
         StreamEnd,
         ErrorEvent,
         AssistantToken,
+        AssistantSnapshot,
         AssistantMessage,
         AssistantNote,
         SkillAutoLoaded,
+        WorkflowPlanUpdated,
         PlanUpdated,
         EducationDisclaimer,
         ToolStarted,

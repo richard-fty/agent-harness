@@ -45,7 +45,9 @@ class ToolDispatch:
         *,
         include_runtime_injected: bool = False,
         groups: set[ToolGroup] | None = None,
+        exclude_names: set[str] | None = None,
     ) -> list[ToolDef]:
+        exclude_names = exclude_names or set()
         tools = list(self._tools.values())
         filtered = [
             td for td in tools
@@ -58,6 +60,7 @@ class ToolDispatch:
                 include_runtime_injected
                 or td.loading_strategy != ToolLoadingStrategy.RUNTIME_INJECTED
             )
+            and td.name not in exclude_names
         ]
         order = {
             ToolGroup.CORE: 0,
@@ -73,6 +76,7 @@ class ToolDispatch:
         *,
         include_runtime_injected: bool = False,
         groups: set[ToolGroup] | None = None,
+        exclude_names: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate OpenAI-format tool schemas for LLM request."""
         return [
@@ -80,6 +84,7 @@ class ToolDispatch:
             for td in self.list_tool_defs(
                 include_runtime_injected=include_runtime_injected,
                 groups=groups,
+                exclude_names=exclude_names,
             )
         ]
 

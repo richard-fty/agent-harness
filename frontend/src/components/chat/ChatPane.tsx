@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import { useStore } from "../../store";
 import { MessageBubble } from "./MessageBubble";
 import { ToolChip } from "./ToolChip";
@@ -23,9 +24,9 @@ export function ChatPane({ sessionId }: { sessionId: string }) {
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-auto">
+    <div ref={scrollRef} className="h-full min-h-0 overflow-y-auto">
       <PlanCard sessionId={sessionId} />
-      <div className="mx-auto max-w-3xl px-6 py-8 space-y-4">
+      <div className="mx-auto max-w-3xl px-6 pt-8 pb-32 space-y-4">
         {session.disclaimer && (
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
             {session.disclaimer}
@@ -41,14 +42,19 @@ export function ChatPane({ sessionId }: { sessionId: string }) {
             case "user":
               if (isInternalWealthPrompt(item.text)) {
                 return (
-                  <MessageBubble
-                    key={idx}
-                    role="user"
-                    content={summarizeInternalWealthPrompt(item.text)}
-                  />
+                  <TurnAnchor key={idx} turnId={item.turnId}>
+                    <MessageBubble
+                      role="user"
+                      content={summarizeInternalWealthPrompt(item.text)}
+                    />
+                  </TurnAnchor>
                 );
               }
-              return <MessageBubble key={idx} role="user" content={item.text} />;
+              return (
+                <TurnAnchor key={idx} turnId={item.turnId}>
+                  <MessageBubble role="user" content={item.text} />
+                </TurnAnchor>
+              );
             case "assistant":
               if (
                 session.loadedSkills.includes("wealth_guide") &&
@@ -84,6 +90,21 @@ export function ChatPane({ sessionId }: { sessionId: string }) {
         })}
         <ActivityBar sessionId={sessionId} />
       </div>
+    </div>
+  );
+}
+
+function TurnAnchor({
+  turnId,
+  children,
+}: {
+  turnId?: string | null;
+  children: ReactNode;
+}) {
+  if (!turnId) return <>{children}</>;
+  return (
+    <div data-turn-id={turnId} className="scroll-mt-6">
+      {children}
     </div>
   );
 }

@@ -73,6 +73,10 @@ def wake(
 
     # 2. Replay messages from events
     user_input = runtime_state.get("current_user_input")
+    has_legacy_messages = any(
+        ev["type"] in {"user_message_added", "assistant_message_added", "tool_message_added"}
+        for ev in events
+    )
     for ev in events:
         etype = ev["type"]
         payload = ev["payload"]
@@ -81,8 +85,16 @@ def wake(
             msg = payload.get("message", payload)
             content = msg.get("content", "") if isinstance(msg, dict) else ""
             engine.messages.append({"role": "user", "content": content})
+        elif etype == "turn_started" and not has_legacy_messages:
+            content = payload.get("user_input", "")
+            if content:
+                engine.messages.append({"role": "user", "content": content})
         elif etype == "user_input_received" and not user_input:
             user_input = payload.get("user_input", "")
+        elif etype == "assistant_message" and not has_legacy_messages:
+            content = payload.get("content", "")
+            if content:
+                engine.messages.append({"role": "assistant", "content": content})
         elif etype == "assistant_message_added":
             msg = payload.get("message", payload)
             if isinstance(msg, dict):
@@ -141,6 +153,7 @@ def wake(
         {"type": ev["type"], "timestamp": ev["timestamp"], "payload": ev["payload"]}
         for ev in events
     ]
+    runtime._persisted_session_event_count = len(runtime.session.events)
     runtime.session.state = AgentState(session_meta.get("state", "idle"))
     runtime.session.stop_reason = session_meta.get("stop_reason")
     runtime.session.metadata = session_metadata or {

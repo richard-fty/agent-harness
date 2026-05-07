@@ -14,14 +14,27 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-async def search_web(query: str, *, max_results: int = 5) -> list[dict[str, str]]:
+async def search_web(
+    query: str,
+    *,
+    max_results: int = 5,
+    include_raw_content: bool = False,
+    topic: str = "general",
+    time_range: str | None = None,
+) -> list[dict[str, str]]:
     """Search the web using Tavily when configured, else fall back to DuckDuckGo.
 
     When a Tavily API key is configured, keep Tavily as the active provider and
     do not silently swap search engines on an empty/error result.
     """
     if _tavily_api_key():
-        return await _search_tavily(query, max_results=max_results)
+        return await _search_tavily(
+            query,
+            max_results=max_results,
+            include_raw_content=include_raw_content,
+            topic=topic,
+            time_range=time_range,
+        )
     return await _search_duckduckgo(query, max_results=max_results)
 
 
@@ -29,19 +42,29 @@ def _tavily_api_key() -> str:
     return os.environ.get("TAVILY_API_KEY", "").strip() or settings.tavily_api_key.strip()
 
 
-async def _search_tavily(query: str, *, max_results: int = 5) -> list[dict[str, str]]:
+async def _search_tavily(
+    query: str,
+    *,
+    max_results: int = 5,
+    include_raw_content: bool = False,
+    topic: str = "general",
+    time_range: str | None = None,
+) -> list[dict[str, str]]:
     try:
+        payload: dict[str, object] = {
+            "query": query,
+            "max_results": max_results,
+            "search_depth": "basic",
+            "topic": topic,
+            "include_answer": False,
+            "include_raw_content": include_raw_content,
+        }
+        if time_range:
+            payload["time_range"] = time_range
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             resp = await client.post(
                 "https://api.tavily.com/search",
-                json={
-                    "query": query,
-                    "max_results": max_results,
-                    "search_depth": "basic",
-                    "topic": "general",
-                    "include_answer": False,
-                    "include_raw_content": False,
-                },
+                json=payload,
                 headers={
                     "Authorization": f"Bearer {_tavily_api_key()}",
                     "Content-Type": "application/json",
@@ -61,7 +84,11 @@ async def _search_tavily(query: str, *, max_results: int = 5) -> list[dict[str, 
         snippet = (item.get("content") or "").strip()
         if not url:
             continue
-        results.append({"title": title, "url": url, "snippet": snippet})
+        result = {"title": title, "url": url, "snippet": snippet}
+        raw_content = (item.get("raw_content") or "").strip()
+        if raw_content:
+            result["text"] = raw_content
+        results.append(result)
     return results
 
 

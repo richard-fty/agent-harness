@@ -72,13 +72,13 @@ export function MessageBubble({ role, content, streaming }: Props) {
               </div>
             );
           },
+          hr() {
+            return null;
+          },
         }}
       >
         {healMarkdown(content) || " "}
       </ReactMarkdown>
-      {streaming && (
-        <span className="inline-block w-2 h-4 ml-1 bg-foreground animate-pulse align-middle" />
-      )}
     </div>
   );
 }

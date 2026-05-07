@@ -1,84 +1,121 @@
 import { Link } from "react-router-dom";
+import { BarChart3, Newspaper, ShieldCheck, TrendingUp } from "lucide-react";
 import { Button } from "../components/ui/button";
+
+const HERO_IMAGE = "/landing-hero.jpg";
 
 export function LandingPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <div className="font-semibold tracking-tight">Leverin.ai</div>
-        <div className="flex items-center gap-3">
-          <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground">
-            Sign in
-          </Link>
-          <Button asChild>
-            <Link to="/register">Get started</Link>
-          </Button>
-        </div>
-      </header>
+    <div className="min-h-screen bg-white text-slate-950 dark:bg-[#07101e] dark:text-slate-50">
+      <section className="relative isolate min-h-[88vh] overflow-hidden bg-[#eef8ff] dark:bg-[#07101e]">
+        <img
+          src={HERO_IMAGE}
+          alt="Bright trading desk with stock charts and market research"
+          className="absolute inset-0 h-full w-full object-cover object-[62%_center]"
+        />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.96)_0%,rgba(245,251,255,0.88)_35%,rgba(235,247,255,0.46)_66%,rgba(235,247,255,0.12)_100%)] dark:bg-[linear-gradient(90deg,rgba(7,16,30,0.91)_0%,rgba(7,16,30,0.76)_38%,rgba(7,16,30,0.36)_70%,rgba(7,16,30,0.14)_100%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-[linear-gradient(0deg,rgba(255,255,255,1)_0%,rgba(255,255,255,0)_100%)] dark:bg-[linear-gradient(0deg,rgba(7,16,30,1)_0%,rgba(7,16,30,0)_100%)]" />
 
-      <main className="mx-auto max-w-6xl px-6 pb-16 pt-10">
-        <section className="grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
-          <div>
-            <div className="inline-flex rounded-full border border-border bg-secondary/25 px-3 py-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-              AI wealth guide
+        <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+          <Link to="/" className="text-sm font-semibold tracking-tight text-slate-950 dark:text-slate-50">
+            Leverin.ai
+          </Link>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              asChild
+              className="border-slate-300 bg-white/80 text-slate-950 shadow-sm shadow-sky-900/5 hover:bg-white hover:text-slate-950 dark:border-slate-600 dark:bg-slate-950/35 dark:text-slate-50 dark:hover:bg-slate-900 dark:hover:text-white"
+            >
+              <Link to="/login">Sign in</Link>
+            </Button>
+            <Button asChild className="bg-slate-950 text-white shadow-sm shadow-sky-900/10 hover:bg-slate-800 hover:text-white dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100 dark:hover:text-slate-950">
+              <Link to="/register">Register</Link>
+            </Button>
+          </div>
+        </header>
+
+        <div className="relative z-10 mx-auto flex min-h-[calc(88vh-76px)] max-w-6xl items-center px-6 pb-16">
+          <div className="max-w-3xl">
+            <div className="inline-flex border border-sky-200 bg-white/80 px-3 py-1 text-xs uppercase text-sky-800 shadow-sm shadow-sky-900/5 backdrop-blur dark:border-sky-300/25 dark:bg-white/10 dark:text-sky-100">
+              Stock investing analysis
             </div>
-            <h1 className="mt-6 max-w-3xl text-5xl font-semibold tracking-tight text-balance">
-              Advisor-grade clarity for people without advisor-grade access.
+            <h1 className="mt-6 text-5xl font-semibold leading-tight tracking-tight text-slate-950 md:text-7xl dark:text-slate-50">
+              Research a stock before the market moves.
             </h1>
-            <p className="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">
-              Leverin.ai helps high earners turn cash, debt, RSUs, and goals into a short list of
-              reasonable paths. Not stock tips. Not generic robo-allocation. A calm way to decide what
-              to do with your money.
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-700 dark:text-slate-200">
+              Leverin.ai turns a ticker into a focused briefing with latest company news,
+              real market data, technical indicators, risks, and source-backed context.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button size="lg" asChild>
-                <Link to="/register">Get your free wealth snapshot</Link>
+              <Button size="lg" asChild className="bg-slate-950 text-white shadow-lg shadow-sky-900/10 hover:bg-slate-800 hover:text-white dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100 dark:hover:text-slate-950">
+                <Link to="/register">Register</Link>
               </Button>
-              <Button size="lg" variant="outline" asChild>
-                <Link to="/login">I already have an account</Link>
+              <Button
+                size="lg"
+                variant="outline"
+                asChild
+                className="border-slate-300 bg-white/70 text-slate-950 shadow-sm shadow-sky-900/5 hover:bg-white hover:text-slate-950 dark:border-slate-500 dark:bg-slate-950/25 dark:text-slate-50 dark:hover:bg-slate-900 dark:hover:text-white"
+              >
+                <Link to="/login">Sign in</Link>
               </Button>
             </div>
-            <p className="mt-4 text-sm text-muted-foreground">
-              For high earners with meaningful savings. Educational guidance, not personalized investment advice.
-            </p>
+            <div className="mt-10 grid max-w-xl gap-4 text-sm text-slate-700 sm:grid-cols-3 dark:text-slate-300">
+              <p><span className="block text-base font-semibold text-slate-950 dark:text-white">Current</span>news and market data</p>
+              <p><span className="block text-base font-semibold text-slate-950 dark:text-white">Structured</span>technical context</p>
+              <p><span className="block text-base font-semibold text-slate-950 dark:text-white">Clear</span>risk framing</p>
+            </div>
           </div>
+        </div>
+      </section>
 
-          <div className="rounded-[28px] border border-border bg-gradient-to-br from-secondary/35 via-background to-background p-6 shadow-sm">
-            <div className="rounded-2xl border border-border bg-background/80 p-5">
-              <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Example decision</div>
-              <div className="mt-3 text-lg font-medium">I have $120k cash and might buy a home in 3 years.</div>
-              <div className="mt-5 grid gap-3">
-                <ScenarioCard title="T-bills" subtitle="Capital stays stable for a near-term goal" />
-                <ScenarioCard title="Split" subtitle="Part safety, part long-term investing" />
-                <ScenarioCard title="Index path" subtitle="Higher growth, but more volatility risk" />
+      <main>
+        <section className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-[#07101e]">
+          <div className="mx-auto grid max-w-6xl gap-10 px-6 py-20 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+            <div>
+              <div className="inline-flex items-center gap-2 text-xs uppercase text-sky-700 dark:text-sky-200">
+                <TrendingUp className="h-4 w-4 text-emerald-500 dark:text-emerald-300" />
+                Product intro
               </div>
+              <h2 className="mt-4 max-w-xl text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl dark:text-slate-50">
+                A cleaner way to ask, “What is happening with this stock?”
+              </h2>
+              <p className="mt-5 max-w-xl text-sm leading-7 text-slate-600 dark:text-slate-300">
+                The stock analysis skill follows a stable workflow: search the company&apos;s
+                latest news, fetch current market data, compute technical indicators, then
+                summarize the signal without pretending the future is certain.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FeatureCard
+                icon={<Newspaper className="h-5 w-5" />}
+                title="Latest news first"
+                body="Starts with the company name and top current news, not broad finance queries."
+              />
+              <FeatureCard
+                icon={<BarChart3 className="h-5 w-5" />}
+                title="Market data"
+                body="Pulls price, volume, recent range, and period change from real data tools."
+              />
+              <FeatureCard
+                icon={<TrendingUp className="h-5 w-5" />}
+                title="Technical context"
+                body="Adds RSI and moving-average context so momentum and trend are visible."
+              />
+              <FeatureCard
+                icon={<ShieldCheck className="h-5 w-5" />}
+                title="Clear limits"
+                body="Frames outputs as research and education, not personalized investment advice."
+              />
             </div>
           </div>
         </section>
 
-        <section className="mt-16 grid gap-4 md:grid-cols-3">
-          <FeatureCard
-            title="Reduce the decision space"
-            body="See 3 to 4 reasonable paths, not a wall of content and not a random list of tickers."
-          />
-          <FeatureCard
-            title="Adaptive education"
-            body="Learn only the concepts needed for your current decision: liquidity, time horizon, concentration, debt drag."
-          />
-          <FeatureCard
-            title="Structured outputs"
-            body="Get a snapshot, path comparison, and practical checklist instead of generic chatbot prose."
-          />
-        </section>
-        <footer className="mt-16 border-t border-border pt-6 text-sm text-muted-foreground">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p>
-              Educational scenario comparison only. Not personalized investment advice.
-            </p>
-            <div className="flex items-center gap-4">
-              <Link to="/privacy" className="hover:text-foreground">Privacy</Link>
-              <Link to="/terms" className="hover:text-foreground">Terms</Link>
-            </div>
+        <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8 text-sm text-slate-500 dark:text-slate-400">
+          <p>Educational market research only. Not personalized investment advice.</p>
+          <div className="flex items-center gap-4">
+            <Link to="/privacy" className="hover:text-slate-950 dark:hover:text-white">Privacy</Link>
+            <Link to="/terms" className="hover:text-slate-950 dark:hover:text-white">Terms</Link>
           </div>
         </footer>
       </main>
@@ -86,20 +123,22 @@ export function LandingPage() {
   );
 }
 
-function FeatureCard({ title, body }: { title: string; body: string }) {
+function FeatureCard({
+  icon,
+  title,
+  body,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+}) {
   return (
-    <div className="rounded-2xl border border-border bg-secondary/15 p-5">
-      <div className="text-base font-medium">{title}</div>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
-    </div>
-  );
-}
-
-function ScenarioCard({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-secondary/20 p-4">
-      <div className="text-sm font-medium">{title}</div>
-      <div className="mt-1 text-sm leading-6 text-muted-foreground">{subtitle}</div>
+    <div className="border border-slate-200 bg-slate-50/80 p-5 shadow-sm shadow-sky-950/5 dark:border-slate-800 dark:bg-slate-950/35">
+      <div className="flex h-10 w-10 items-center justify-center border border-slate-200 bg-white text-emerald-600 dark:border-slate-700 dark:bg-slate-900 dark:text-emerald-300">
+        {icon}
+      </div>
+      <div className="mt-5 text-base font-medium text-slate-950 dark:text-slate-50">{title}</div>
+      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{body}</p>
     </div>
   );
 }

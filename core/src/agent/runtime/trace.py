@@ -54,6 +54,9 @@ class Trace(BaseModel):
     recovery_events: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     gate_results: dict[str, bool] = Field(default_factory=dict)
+    plan_updates: list[dict[str, Any]] = Field(default_factory=list)
+    skill_loads: list[dict[str, Any]] = Field(default_factory=list)
+    artifact_events: list[dict[str, Any]] = Field(default_factory=list)
 
     def add_event(self, event: AgentEvent) -> None:
         """Add an event to the trace."""
@@ -150,6 +153,29 @@ class Trace(BaseModel):
             "result_size": result_size,
             "urls": urls or [],
             "content_preview": content_preview or "",
+            "timestamp": time.time(),
+        })
+
+    def record_plan_update(self, *, step: int, kind: str, payload: dict[str, Any]) -> None:
+        self.plan_updates.append({
+            "step": step,
+            "kind": kind,
+            "payload": payload,
+            "timestamp": time.time(),
+        })
+
+    def record_skill_load(self, *, step: int, skill_name: str) -> None:
+        self.skill_loads.append({
+            "step": step,
+            "skill_name": skill_name,
+            "timestamp": time.time(),
+        })
+
+    def record_artifact_event(self, *, step: int, event_type: str, data: dict[str, Any]) -> None:
+        self.artifact_events.append({
+            "step": step,
+            "event_type": event_type,
+            "data": data,
             "timestamp": time.time(),
         })
 

@@ -67,7 +67,7 @@ Required events (minimum):
 
 In this repo:
 - `core/src/agent/session/engine.py` — turn-scoped session state and context assembly
-- `core/src/agent/session/archive.py` — append-only SQLite event log with positional reads (`get_events(session_id, after=cursor)`) — the durable source of truth
+- `core/src/agent/session/archive.py` — append-only Postgres event log with positional reads (`get_events(session_id, after=cursor)`) — the durable source of truth
 - `core/src/agent/session/store.py` — deprecated JSON-file store; kept for compatibility only
 
 ### 2.2 Harness
@@ -200,7 +200,7 @@ Release gate: no regression on safety or lifecycle cases; task success stable or
 
 | Concept | Status | Where |
 |---|---|---|
-| Session as durable log | **shipped** — `SessionArchive` is the append-only SQLite event log with positional reads. `SqliteSessionStore` provides a typed protocol wrapper over the archive for CRUD operations; the legacy JSON-file impl has been removed. | `core/src/agent/session/archive.py`, `core/src/agent/session/store.py` |
+| Session as durable log | **shipped** — `SessionArchive` is the append-only Postgres event log with positional reads. `PostgresSessionStore` provides a typed protocol wrapper over the archive for CRUD operations; the legacy JSON-file impl has been removed. | `core/src/agent/session/archive.py`, `core/src/agent/session/store.py` |
 | Stateless harness + `wake` | **shipped** — run-scoped state is persisted in the archive; `wake(session_id)` boots a fresh harness from the event log alone. `SessionOrchestrator.resume_runtime` delegates to `wake()` so there is a single reconstruction path. | `core/src/agent/runtime/managed_runtime.py`, `core/src/agent/runtime/wake.py`, `core/src/agent/runtime/orchestrator.py` |
 | Sandbox boundary | **shipped** — `DockerSandbox` (per-session container, no host env forwarding) with `LocalSandbox` fallback; `sandbox_require_isolation` fails closed when Docker is required but unavailable | `core/src/agent/runtime/sandbox.py` |
 | Universal hands (`execute(name, input) -> str`) | **shipped** — `ToolDispatch.execute_by_name(name, input)` is the stable str-return contract for native, MCP-backed, and resource-like tools | `core/src/agent/runtime/tool_dispatch.py` |

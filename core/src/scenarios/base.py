@@ -40,6 +40,10 @@ class Scenario(ABC):
         """Return benchmark test inputs."""
         ...
 
+    def is_app_artifact(self) -> bool:
+        """Whether this scenario uses install/build/test app gates."""
+        return False
+
     @abstractmethod
     def evaluate(self, trace: Trace, test_case: dict[str, Any]) -> dict[str, Any]:
         """Grade the agent's performance on a test case."""

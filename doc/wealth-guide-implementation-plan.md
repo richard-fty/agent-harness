@@ -57,7 +57,7 @@ Principles come from [financial-coach-design-principles.md](financial-coach-desi
 
 | Milestone | Deliverable | Est. |
 |---|---|---|
-| M0 — Postgres migration | SQLite → plain Postgres + Alembic migrations | 2 d |
+| M0 — Postgres baseline | Plain Postgres + Alembic migrations | 2 d |
 | M1 — Landing page | Public `/` with full marketing sections | 2–3 d |
 | M2 — Skill pack | `wealth_guide` pack: SKILL.md + 3 tools + tests | 2 d |
 | M3 — Onboarding wizard | 4-step form → prompt → session kickoff | 2 d |
@@ -69,7 +69,7 @@ Principles come from [financial-coach-design-principles.md](financial-coach-desi
 
 Build order recommendation: M0 and M2 first (in parallel), then M1 and M3, then M4, then M5 and M6.
 
-## 4. Milestone 0 — Postgres migration
+## 4. Milestone 0 — Postgres Baseline
 
 ### 4.1 Dependencies
 
@@ -167,12 +167,12 @@ CREATE INDEX wealth_checklist_user_idx ON wealth_checklist_items(user_id);
 - New: `core/src/agent/session/store_postgres.py` — `PostgresSessionStore` implementing `SessionStore` protocol
 - New: `core/src/agent/session/archive_postgres.py` — `PostgresSessionArchive` for event log
 - New: `core/src/agent/users/store.py` — `UserStore` protocol + Postgres impl (§4.4 of principles)
-- Modified: `backend/apex_server/auth.py` — swap SQLite queries for `asyncpg`
+- Modified: `backend/apex_server/auth.py` — use Postgres queries
 - Modified: `backend/apex_server/deps.py` — build `asyncpg` pool in `build_default_app_state()`, inject via `AppState`
 
 No call-site changes thanks to protocol-driven design. Grep:
 ```bash
-grep -rn "sqlite" core/src/ backend/apex_server/
+grep -rn "DATABASE_URL" core/src/ backend/apex_server/
 ```
 Every hit is inside a class implementing an existing protocol.
 
@@ -185,7 +185,7 @@ Pre-launch, no users. Drop-and-recreate on fresh Postgres. Document in README.
 - `alembic upgrade head` creates schema on fresh Postgres
 - `make serve` boots against Postgres
 - All backend tests pass against Postgres
-- No `sqlite3` imports remain in `backend/apex_server/` or `core/src/agent/session/`
+- Postgres storage is the only supported runtime database path
 
 ## 5. Milestone 1 — Landing page
 
@@ -762,7 +762,7 @@ snapshot_built · path_selected · checklist_item_completed · session_resumed
 | Path | Change | Milestone |
 |---|---|---|
 | `core/pyproject.toml` | Add asyncpg, alembic | M0 |
-| `backend/apex_server/auth.py` | SQLite → asyncpg | M0 |
+| `backend/apex_server/auth.py` | Postgres auth storage | M0 |
 | `backend/apex_server/deps.py` | Postgres pool in AppState | M0 |
 | `backend/apex_server/app.py` | Register wealth_router | M3 |
 | `core/src/agent/session/store.py` | Default to Postgres impl | M0 |

@@ -38,6 +38,42 @@ async def load_replay_events(state: AppState, session_id: str, since_seq: int) -
     return await state.session_store.list_events(session_id, since_seq=since_seq)
 
 
+async def last_turn_cutoff(state: AppState, session_id: str) -> int:
+    """Seq immediately before the most recent durable turn_started event."""
+
+    def _query() -> int:
+        with state.archive._lock, state.archive.db.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COALESCE(MAX(seq), 0) AS last_turn_seq
+                FROM events
+                WHERE session_id = %s AND event_type = 'turn_started'
+                """,
+                [session_id],
+            )
+            row = cur.fetchone()
+        last_turn_seq = int(row["last_turn_seq"]) if row else 0
+        return max(0, last_turn_seq - 1)
+
+    return await asyncio.to_thread(_query)
+
+
+def encode_sse_event(ev: AgentEvent) -> dict[str, str]:
+    """Encode an AgentEvent as a named SSE frame.
+
+    Only durable DB events have positive seq and therefore an SSE id. Live-only
+    events such as assistant_token keep seq=0 so they cannot advance
+    Last-Event-ID past persisted rows.
+    """
+    frame = {
+        "event": ev.type,
+        "data": ev.model_dump_json(),
+    }
+    if ev.seq > 0:
+        frame["id"] = str(ev.seq)
+    return frame
+
+
 async def _next_live_event_with_disconnect(
     request: Request,
     subscription,
@@ -55,7 +91,7 @@ async def _next_live_event_with_disconnect(
                 next_task.cancel()
                 try:
                     await next_task
-                except asyncio.CancelledError:
+                except (asyncio.CancelledError, StopAsyncIteration):
                     pass
                 return None
     except StopAsyncIteration:
@@ -87,22 +123,15 @@ async def stream_events(
         except ValueError:
             since_seq = 0
 
-    def _encode_event(ev: AgentEvent) -> dict[str, str]:
-        return {
-            "id": str(ev.seq),
-            "event": ev.type,
-            "data": ev.model_dump_json(),
-        }
-
     async def event_gen():
-        cursor = since_seq
+        cursor = since_seq if since_seq > 0 else await last_turn_cutoff(state, session_id)
 
         # Durable replay first: survives reconnects even if the process restarts
         # or the in-memory bus buffer has been lost.
         replay = await load_replay_events(state, session_id, cursor)
         for ev in replay:
             cursor = max(cursor, ev.seq)
-            yield _encode_event(ev)
+            yield encode_sse_event(ev)
 
         while True:
             if await request.is_disconnected():
@@ -116,7 +145,7 @@ async def stream_events(
                 if ev is None:
                     break
                 cursor = max(cursor, ev.seq)
-                yield _encode_event(ev)
+                yield encode_sse_event(ev)
                 if await request.is_disconnected():
                     return
                 if isinstance(ev, StreamEnd):
@@ -131,4 +160,4 @@ async def stream_events(
             # turn boundary. Avoid a tight reconnect loop.
             await asyncio.sleep(0.05)
 
-    return EventSourceResponse(event_gen())
+    return EventSourceResponse(event_gen(), ping=15)

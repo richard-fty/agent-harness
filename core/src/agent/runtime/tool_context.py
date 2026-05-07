@@ -20,6 +20,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from agent.artifacts import ArtifactStore
     from agent.events import EventBus
+    from agent.runtime.trace import Trace
 
 
 @dataclass
@@ -30,6 +31,8 @@ class ToolContext:
     turn_id: str | None
     event_bus: "EventBus"
     artifact_store: "ArtifactStore | None" = None
+    trace: "Trace | None" = None
+    current_step: int = 0
     # extra: per-call bag tools can stash values into if they want correlation
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -87,19 +90,33 @@ async def emit_artifact_created(*, spec: Any) -> str | None:
     if ctx is None or ctx.artifact_store is None:
         return None
     artifact = await ctx.artifact_store.create(ctx.session_id, spec)
+    payload = {
+        "artifact_id": artifact.id,
+        "kind": spec.kind.value if hasattr(spec.kind, "value") else str(spec.kind),
+        "name": spec.name,
+        "language": spec.language,
+        "mime": spec.mime,
+        "description": spec.description,
+    }
     await ctx.event_bus.publish(
         ctx.session_id,
         ArtifactCreated(
             session_id=ctx.session_id,
             turn_id=ctx.turn_id,
-            artifact_id=artifact.id,
+            artifact_id=payload["artifact_id"],
             kind=spec.kind,
-            name=spec.name,
-            language=spec.language,
-            mime=spec.mime,
-            description=spec.description,
+            name=payload["name"],
+            language=payload["language"],
+            mime=payload["mime"],
+            description=payload["description"],
         ),
     )
+    if ctx.trace is not None:
+        ctx.trace.record_artifact_event(
+            step=ctx.current_step,
+            event_type="artifact_created",
+            data=payload,
+        )
     return artifact.id
 
 
@@ -120,6 +137,12 @@ async def emit_artifact_append(artifact_id: str, text: str) -> None:
             text=text,
         ),
     )
+    if ctx.trace is not None:
+        ctx.trace.record_artifact_event(
+            step=ctx.current_step,
+            event_type="artifact_patch",
+            data={"artifact_id": artifact_id, "op": ArtifactPatchOp.APPEND.value, "text": text},
+        )
 
 
 async def emit_artifact_replace(artifact_id: str, content: str) -> None:
@@ -139,6 +162,12 @@ async def emit_artifact_replace(artifact_id: str, content: str) -> None:
             content=content,
         ),
     )
+    if ctx.trace is not None:
+        ctx.trace.record_artifact_event(
+            step=ctx.current_step,
+            event_type="artifact_patch",
+            data={"artifact_id": artifact_id, "op": ArtifactPatchOp.REPLACE.value, "content": content},
+        )
 
 
 async def emit_artifact_finalized(artifact_id: str) -> None:
@@ -158,3 +187,13 @@ async def emit_artifact_finalized(artifact_id: str) -> None:
             checksum=artifact.checksum,
         ),
     )
+    if ctx.trace is not None:
+        ctx.trace.record_artifact_event(
+            step=ctx.current_step,
+            event_type="artifact_finalized",
+            data={
+                "artifact_id": artifact_id,
+                "size": artifact.size,
+                "checksum": artifact.checksum,
+            },
+        )

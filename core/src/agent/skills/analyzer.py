@@ -20,6 +20,11 @@ from typing import Any
 from skill_packs.base import SkillPack
 
 
+PlanningMode = str
+DEFAULT_PLANNING_MODE: PlanningMode = "off"
+VALID_PLANNING_MODES = {"off", "on"}
+
+
 @dataclass
 class WorkflowStep:
     """A single step in a skill's workflow."""
@@ -51,6 +56,7 @@ class AnalyzedSkill:
     rules: list[str]                                # Constraints
     declared_tools: list[DeclaredTool]              # Tools mentioned in SKILL.md
     common_patterns: list[str]                      # Usage patterns/examples
+    planning_mode: PlanningMode                     # off | on
     raw_skill_md: str                               # Original SKILL.md content
 
     # Parsed from REFERENCE.md
@@ -93,6 +99,7 @@ class SkillAnalyzer:
         rules = self._parse_list_section(skill_md, "Rules")
         declared_tools = self._parse_tools_section(skill_md, registered_tools)
         common_patterns = self._parse_list_section(skill_md, "Common Patterns")
+        planning_mode = self._parse_planning_mode(skill_md)
 
         # Parse REFERENCE.md structure
         reference_sections = self._parse_reference_structure(reference_md)
@@ -117,7 +124,7 @@ class SkillAnalyzer:
 
         # Build structured prompt (Level 2)
         structured_prompt = self._build_structured_prompt(
-            skill, workflow, rules, declared_tools, reference_sections
+            skill, workflow, rules, declared_tools, reference_sections, planning_mode
         )
 
         return AnalyzedSkill(
@@ -128,6 +135,7 @@ class SkillAnalyzer:
             rules=rules,
             declared_tools=declared_tools,
             common_patterns=common_patterns,
+            planning_mode=planning_mode,
             raw_skill_md=skill_md,
             reference_sections=reference_sections,
             raw_reference_md=reference_md,
@@ -183,6 +191,33 @@ class SkillAnalyzer:
                     tool_hint=tool_hint,
                 ))
         return steps
+
+    def _parse_planning_mode(self, markdown: str) -> PlanningMode:
+        """Extract a declarative planning mode from SKILL.md.
+
+        Preferred form:
+          Planning Mode: on
+        """
+        match = re.search(
+            r"(?im)^\s*planning\s+mode\s*:\s*([a-zA-Z0-9_-]+)\s*$",
+            markdown,
+        )
+        if not match:
+            return DEFAULT_PLANNING_MODE
+        mode = match.group(1).strip().lower().replace("-", "_")
+        legacy = {
+            "none": "off",
+            "false": "off",
+            "no": "off",
+            "deterministic_workflow": "off",
+            "llm_dynamic": "on",
+            "true": "on",
+            "yes": "on",
+        }
+        mode = legacy.get(mode, mode)
+        if mode not in VALID_PLANNING_MODES:
+            return DEFAULT_PLANNING_MODE
+        return mode
 
     def _parse_tools_section(
         self, markdown: str, registered_tools: list[str]
@@ -282,9 +317,14 @@ class SkillAnalyzer:
         rules: list[str],
         declared_tools: list[DeclaredTool],
         reference_sections: list[ReferenceSection],
+        planning_mode: PlanningMode,
     ) -> str:
         """Build a clean, structured prompt for Level 2 loading."""
         parts = [f"# Skill: {skill.name}", f"{skill.description}", ""]
+
+        if planning_mode != DEFAULT_PLANNING_MODE:
+            parts.append(f"Planning Mode: {planning_mode}")
+            parts.append("")
 
         # Workflow
         if workflow:

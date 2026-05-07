@@ -44,6 +44,22 @@ export async function postJSON<T>(path: string, body: unknown): Promise<T> {
   return text ? JSON.parse(text) : (undefined as T);
 }
 
+export async function postFile<T>(path: string, file: File): Promise<T> {
+  const url = new URL(path, window.location.origin);
+  url.searchParams.set("filename", file.name);
+  const res = await fetch(url.pathname + url.search, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+  await handle(res);
+  const text = await res.text();
+  return text ? JSON.parse(text) : (undefined as T);
+}
+
 export async function del(path: string): Promise<void> {
   const res = await fetch(path, { method: "DELETE", credentials: "include" });
   await handle(res);

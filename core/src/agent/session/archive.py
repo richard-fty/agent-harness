@@ -44,14 +44,17 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq);
+CREATE INDEX IF NOT EXISTS idx_events_session_type_seq ON events(session_id, event_type, seq);
 CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_user_id, created_at DESC);
 """
 
 
 def _extract_searchable_text(event_type: str, payload: dict[str, Any]) -> str:
     """Pull human-readable text from an event for recall queries."""
-    if event_type in ("user_message_added", "user_input_received"):
+    if event_type in ("user_message_added", "user_input_received", "turn_started"):
         return payload.get("content", payload.get("user_input", ""))
+    if event_type in ("assistant_message", "assistant_snapshot", "turn_finished"):
+        return payload.get("content", "")
     if event_type == "assistant_message_added":
         msg = payload.get("message", {})
         return msg.get("content", "") if isinstance(msg, dict) else ""
@@ -131,10 +134,10 @@ class SessionArchive:
         event_type: str,
         payload: dict[str, Any],
     ) -> int:
-        seq = self._seq_cache.get(session_id, 0) + 1
-        self._seq_cache[session_id] = seq
         content_text = _extract_searchable_text(event_type, payload)
         with self._lock, self.db.cursor() as cur:
+            seq = self._seq_cache.get(session_id, 0) + 1
+            self._seq_cache[session_id] = seq
             cur.execute(
                 """
                 INSERT INTO events (

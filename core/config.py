@@ -136,6 +136,10 @@ class Settings(BaseSettings):
 
     # Retrieval / knowledge base
     enable_rag: bool = Field(default=True, description="Enable retrieval and knowledge-base tools")
+    enable_rag_tools: bool = Field(
+        default=False,
+        description="Expose RAG tools to the LLM. Keep false for stock-analysis demo mode.",
+    )
 
     # Paths
     charts_dir: str = Field(default="charts")

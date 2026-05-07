@@ -60,7 +60,7 @@ class SessionEngine:
         # Retrieval + assembly
         self.retrieval_policy = RetrievalPolicy()
         self.context_assembler = ContextAssembler(
-            self.context_mgr, self.retrieval_policy, self.plan_manager,
+            self.context_mgr, self.retrieval_policy, self.plan_manager, self.skill_loader,
         )
         self.messages: list[dict[str, Any]] = [
             {

@@ -2,8 +2,9 @@
 
 The runtime publishes `AgentEvent`s for a session; consumers subscribe to
 the same session_id and receive events as they arrive. On reconnect,
-consumers can pass `since_seq` to replay recent events from an in-memory
-ring buffer (matching what a Last-Event-ID reconnection would need).
+consumers can pass `since_seq` to replay recent durable events from an
+in-memory ring buffer (matching what a Last-Event-ID reconnection would need).
+Live-only events keep `seq=0` and are not replayed by cursor.
 
 Subscribers auto-close their iterator when they receive a `StreamEnd`
 event for the session — no polling of session state required.
@@ -58,12 +59,9 @@ class InMemoryEventBus:
 
     async def publish(self, session_id: str, event: AgentEvent) -> None:
         async with self._lock:
-            # Assign a monotonic seq per session. Callers may pre-set it (e.g.,
-            # when replaying from a durable store); if unset (0), we stamp.
-            if event.seq == 0:
-                self._seq_counters[session_id] += 1
-                event.seq = self._seq_counters[session_id]
-            else:
+            # Durable events arrive with a DB-assigned seq. Live-only events keep
+            # seq=0 so SSE omits `id` and cannot advance Last-Event-ID.
+            if event.seq > 0:
                 self._seq_counters[session_id] = max(
                     self._seq_counters[session_id], event.seq
                 )

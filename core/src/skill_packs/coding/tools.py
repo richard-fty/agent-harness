@@ -18,6 +18,7 @@ from agent.runtime.tool_context import (
     emit_artifact_append,
     emit_artifact_created,
     emit_artifact_finalized,
+    emit_artifact_replace,
     get_tool_context,
 )
 
@@ -147,7 +148,12 @@ async def update_plan(steps: str) -> str:
     if ctx is not None:
         await ctx.event_bus.publish(
             ctx.session_id,
-            PlanUpdated(session_id=ctx.session_id, turn_id=ctx.turn_id, steps=todo_items),
+            PlanUpdated(
+                session_id=ctx.session_id,
+                turn_id=ctx.turn_id,
+                steps=todo_items,
+                kind="coding",
+            ),
         )
     return f"Todo checklist updated: {len(todo_items)} items."
 

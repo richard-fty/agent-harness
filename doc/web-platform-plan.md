@@ -20,7 +20,7 @@
 ## 3. Current state (honest baseline)
 
 - **No server.** `tui/app.py` and `main.py` both call `SharedTurnRunner` in-process.
-- **SQLite archive** (`core/src/agent/session/archive.py`) stores events per session.
+- **Postgres archive** (`core/src/agent/session/archive.py`) stores events per session.
 - **Consumer polls the archive** (`subscribe_events`, 100ms loop) and uses session state as termination signal — fragile; source of recent races.
 - **Event vocabulary is thin**: tokens, tool_started, approval_requested, turn_finished. Not enough for an artifact-oriented UI.
 - **Artifacts have no first-class model**. File writes happen in the sandbox, but the UI has no way to know "a file was written, here's its content."
@@ -60,7 +60,7 @@
                     └────────────┘  └────────────┘  └────────────┘
 ```
 
-Phase 1 collapses the right three columns into a single process (SQLite + filesystem + in-memory queue). The API surface stays identical.
+Phase 1 collapses the right three columns into a single process (Postgres + filesystem + in-memory queue). The API surface stays identical.
 
 ## 5. Core abstractions (stable across all phases)
 
@@ -140,7 +140,7 @@ class SessionStore(Protocol):
     async def append_event(self, session_id: str, event: AgentEvent) -> None: ...
 ```
 
-Today: SQLite-backed. Later: Postgres. The schema stays the same.
+Today: Postgres-backed. The schema stays stable across local and hosted deployments.
 
 ## 6. Runtime changes
 
@@ -360,8 +360,8 @@ A single reducer-like function takes `(state, event)` and returns the next state
 
 | Phase | What's new | What's swapped |
 |---|---|---|
-| **0 — MVP local** | FastAPI + SSE; React app; in-memory bus; filesystem artifacts; SQLite sessions. One process. | — |
-| **1 — Auth & multi-user** | JWT auth, per-user session ownership, Postgres. | SQLite → Postgres. |
+| **0 — MVP local** | FastAPI + SSE; React app; in-memory bus; filesystem artifacts; Postgres sessions. One process. | — |
+| **1 — Auth & multi-user** | JWT auth, per-user session ownership, Postgres. | — |
 | **2 — Horizontal edge** | N FastAPI pods behind LB with sticky SSE. | — (infra only). |
 | **3 — Workers + broker** | Turn execution moves to Arq worker pool; Redis Pub/Sub event bus. Edge pods just serve SSE and auth. | InMemoryEventBus → RedisEventBus; inline turn → enqueued job. |
 | **4 — Object storage** | Artifacts on S3 with signed URLs. | FilesystemArtifactStore → S3ArtifactStore. |
@@ -375,7 +375,7 @@ At every phase, the React client and HTTP/SSE API are unchanged.
 - `core/src/agent/events/schema.py`: event types + pydantic discriminated union
 - `core/src/agent/events/bus.py`: `EventBus` protocol + `InMemoryEventBus`
 - `core/src/agent/artifacts/model.py` + `core/src/agent/artifacts/store.py`: `ArtifactStore` protocol + `FilesystemArtifactStore`
-- `core/src/agent/session/store.py`: `SessionStore` protocol + SQLite impl wrapping today's archive
+- `core/src/agent/session/store.py`: `SessionStore` protocol + Postgres impl wrapping today's archive
 - Tests for each contract
 
 One PR, no behavior change to existing code yet.

@@ -20,7 +20,11 @@ class StockStrategySkill(SkillPack):
 
     @property
     def description(self) -> str:
-        return "Stock and crypto analysis — fetch market data, compute indicators, backtest strategies"
+        return (
+            "Stock, crypto, and traded-asset analysis — fetch market prices, "
+            "compute technical indicators, and backtest trading strategies. "
+            "Not for generic business CSV dashboards or uploaded sales datasets."
+        )
 
     @property
     def keywords(self) -> list[str]:
@@ -28,8 +32,8 @@ class StockStrategySkill(SkillPack):
             # Domain
             "stock", "stocks", "crypto", "cryptocurrency", "bitcoin", "ethereum",
             "trading", "strategy", "backtest", "portfolio",
-            "price", "chart", "candlestick", "indicator", "signal", "market",
-            "analyze", "analysis", "ticker", "symbol",
+            "price", "candlestick", "indicator", "signal", "market",
+            "ticker", "symbol",
             # Tickers
             "aapl", "tsla", "goog", "msft", "amzn", "nvda", "meta",
             "btc", "eth", "sol", "doge",
@@ -43,7 +47,7 @@ class StockStrategySkill(SkillPack):
             "rsi", "macd", "bollinger", "moving average", "sma", "ema",
             "oversold", "overbought", "sharpe", "drawdown",
             # Research / briefing phrasing
-            "brief", "briefing", "research", "report", "report on",
+            "equity research", "trading report", "market briefing", "report on",
         ]
 
     def get_tools(self) -> list[tuple[ToolDef, ToolHandler]]:

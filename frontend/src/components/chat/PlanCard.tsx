@@ -13,12 +13,16 @@ import type { PlanStep } from "../../types";
  */
 export function PlanCard({ sessionId }: { sessionId: string }) {
   const plan = useStore((s) => s.sessions[sessionId]?.plan ?? []);
+  const workflowPlan = useStore((s) => s.sessions[sessionId]?.workflowPlan ?? []);
+  const planKind = useStore((s) => s.sessions[sessionId]?.planKind ?? "task");
+  const displayPlan = workflowPlan.length > 0 ? workflowPlan : plan;
+  const title = workflowPlan.length > 0 ? "Skill Workflow" : planTitle(planKind);
   const [open, setOpen] = useState(true);
 
-  if (plan.length === 0) return null;
+  if (displayPlan.length === 0) return null;
 
-  const completed = plan.filter((s) => s.status === "completed").length;
-  const total = plan.length;
+  const completed = displayPlan.filter((s) => s.status === "completed").length;
+  const total = displayPlan.length;
   const allCompleted = completed === total;
 
   return (
@@ -30,7 +34,7 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
         >
           <ListChecks className="h-4 w-4 text-muted-foreground" />
           <div className="flex-1 text-left">
-            <div className="text-sm font-medium">Checklist</div>
+            <div className="text-sm font-medium">{title}</div>
             <div className="text-xs text-muted-foreground">
               {completed} of {total} {allCompleted ? "completed" : "complete"}
             </div>
@@ -49,7 +53,7 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
               transition={{ duration: 0.2 }}
               className="border-t border-border/60 divide-y divide-border/60"
             >
-              {plan.map((step) => (
+              {displayPlan.map((step) => (
                 <PlanRow key={step.id} step={step} />
               ))}
             </motion.ul>
@@ -58,6 +62,11 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
       </div>
     </div>
   );
+}
+
+function planTitle(kind: "coding" | "task") {
+  if (kind === "coding") return "Coding Plan";
+  return "Checklist";
 }
 
 function PlanRow({ step }: { step: PlanStep }) {

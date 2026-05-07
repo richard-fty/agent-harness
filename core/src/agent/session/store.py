@@ -175,12 +175,26 @@ class PostgresSessionStore:
         raw = self.archive.get_events(session_id, after=since_seq)
         out: list[AgentEvent] = []
         for row in raw:
+            payload = dict(row["payload"])
+            event_type = row["type"]
+            if event_type == "user_input_received":
+                # The durable archive stores the legacy runtime event, while
+                # live SSE sends the typed UI event. Normalize replay so a hard
+                # browser refresh restores the same running/composer state.
+                event_type = "turn_started"
+                payload = {"user_input": payload.get("user_input", "")}
+            if row["type"] in {"tool_started", "tool_finished", "tool_denied"}:
+                # Runtime archive events historically used `tool_name`, while
+                # typed UI events use `name`. Normalize on replay so SSE
+                # reconnects see the same shape as live bus subscribers.
+                if "name" not in payload and "tool_name" in payload:
+                    payload["name"] = payload["tool_name"]
             blob = {
-                "type": row["type"],
+                "type": event_type,
                 "seq": row["seq"],
                 "timestamp": row["timestamp"],
                 "session_id": session_id,
-                **row["payload"],
+                **payload,
             }
             try:
                 out.append(event_adapter.validate_python(blob))

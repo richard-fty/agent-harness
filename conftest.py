@@ -1,12 +1,10 @@
 """Repo-wide pytest configuration.
 
-Key guarantee: tests never write to the developer's real ``results/`` dir.
+Key guarantee: tests never write to the developer's real workspace paths.
 
-The agent runtime and auth/session stores all default to relative paths
-(``results/apex.db``, ``results/artifacts``). Without this fixture, any
-test that constructs a runtime or archive without explicitly overriding
-the path would pollute the dev database on every ``pytest`` run — which
-is what bit us earlier (13 orphan sessions showing up in litecli).
+Some tools default to relative filesystem paths such as ``results/artifacts``.
+Without this fixture, tests that construct runtimes without explicitly
+overriding paths would pollute the dev workspace.
 
 We make every test run inside its own ``tmp_path`` by ``chdir``-ing into
 it before the test body executes. Any relative paths then resolve under

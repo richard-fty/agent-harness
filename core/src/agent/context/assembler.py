@@ -21,7 +21,11 @@ from typing import Any
 
 from agent.context.manager import ContextManager
 from agent.runtime.tool_dispatch import ToolDispatch
+from agent.skills.loader import SkillLoader
 from services.retrieval_policy import RetrievalContext, RetrievalPolicy
+
+
+PLAN_TOOL_NAMES = {"todo_write", "todo_update", "todo_view", "update_plan"}
 
 
 @dataclass
@@ -41,10 +45,12 @@ class ContextAssembler:
         context_manager: ContextManager,
         retrieval_policy: RetrievalPolicy,
         plan_manager: Any | None = None,
+        skill_loader: SkillLoader | None = None,
     ) -> None:
         self.context_manager = context_manager
         self.retrieval_policy = retrieval_policy
         self.plan_manager = plan_manager
+        self.skill_loader = skill_loader
 
     async def prepare(
         self,
@@ -55,6 +61,7 @@ class ContextAssembler:
         retrieval = await self.retrieval_policy.evaluate(user_input)
         tool_schemas = dispatch.to_openai_tools(
             include_runtime_injected=retrieval.should_offer_runtime_tools,
+            exclude_names=self._excluded_tool_names(),
         )
         fitted_messages = await self.context_manager.prepare(messages, tool_schemas)
 
@@ -73,6 +80,20 @@ class ContextAssembler:
             tool_schemas=tool_schemas,
             retrieval=retrieval,
         )
+
+    def _excluded_tool_names(self) -> set[str]:
+        if self._planning_enabled():
+            return set()
+        return PLAN_TOOL_NAMES
+
+    def _planning_enabled(self) -> bool:
+        if self.skill_loader is None:
+            return False
+        for name in self.skill_loader.loaded:
+            analyzed = self.skill_loader.analyzed.get(name)
+            if getattr(analyzed, "planning_mode", "off") == "on":
+                return True
+        return False
 
     def _build_zone_1_content(self) -> str:
         """Build the pinned Zone 1 content: plan + facts."""

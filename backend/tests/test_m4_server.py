@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 
 from apex_server.app import create_app
 from apex_server.deps import build_default_app_state
-from apex_server.routes.events_routes import load_replay_events
+from apex_server.routes.events_routes import encode_sse_event, last_turn_cutoff, load_replay_events
+from agent.events import AssistantToken
 from agent.session.store import SessionSpec
 
 pytestmark = pytest.mark.skipif(
@@ -154,3 +155,26 @@ class TestEventStreamReplay:
         events = await load_replay_events(state, session.id, since_seq=1)
         assert [e.seq for e in events] == [2, 3]
         assert getattr(events[0], "text", None) == "second"
+
+    def test_encode_sse_event_omits_id_for_live_only_zero_seq(self):
+        event = AssistantToken(session_id="s1", turn_id="t1", text="live")
+
+        frame = encode_sse_event(event)
+
+        assert frame["event"] == "assistant_token"
+        assert "id" not in frame
+
+    @pytest.mark.asyncio
+    async def test_last_turn_cutoff_points_to_most_recent_turn(self, tmp_path):
+        client = _app(tmp_path)
+        state = client.app.state.app_state
+        session = await state.session_store.create(
+            SessionSpec(model="m", owner_user_id="alice")
+        )
+
+        state.archive.emit_event(session.id, "turn_started", {"user_input": "one"})
+        state.archive.emit_event(session.id, "assistant_message", {"content": "done"})
+        state.archive.emit_event(session.id, "stream_end", {"final_state": "completed"})
+        second_turn_seq = state.archive.emit_event(session.id, "turn_started", {"user_input": "two"})
+
+        assert await last_turn_cutoff(state, session.id) == second_turn_seq - 1

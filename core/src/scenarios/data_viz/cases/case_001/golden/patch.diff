@@ -1,0 +1,480 @@
+diff --git a/src/main.js b/src/main.js
+--- a/src/main.js
++++ b/src/main.js
+@@ -1,11 +1,203 @@
+ const root = document.querySelector("#root");
+ 
+-root.innerHTML = `
+-  <main class="story-shell">
+-    <section class="empty-state">
+-      <p class="eyebrow">Data story workspace</p>
+-      <h1>Build the requested data visualization story</h1>
+-      <p>Inspect the provided CSV, compute the metrics, and replace this starter view with the report.</p>
++const monthOrder = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
++
++function parseCsv(text) {
++  const [headerLine, ...lines] = text.trim().split(/\r?\n/);
++  const headers = headerLine.split(",");
++  return lines.map((line) => {
++    const values = line.split(",");
++    const row = Object.fromEntries(headers.map((key, index) => [key, values[index]]));
++    return {
++      ...row,
++      year: Number(row.year),
++      revenue: Number(row.revenue),
++      gross_margin: Number(row.gross_margin),
++    };
++  });
++}
++
++function sum(rows, key = "revenue") {
++  return rows.reduce((total, row) => total + Number(row[key] || 0), 0);
++}
++
++function groupSum(rows, key) {
++  const out = new Map();
++  for (const row of rows) {
++    out.set(row[key], (out.get(row[key]) || 0) + row.revenue);
++  }
++  return [...out.entries()].sort((a, b) => b[1] - a[1]);
++}
++
++function monthlyRows(rows) {
++  const grouped = new Map(monthOrder.map((month) => [month, 0]));
++  for (const row of rows) {
++    grouped.set(row.month, (grouped.get(row.month) || 0) + row.revenue);
++  }
++  return monthOrder.map((month) => ({ month, value: grouped.get(month) || 0 }));
++}
++
++function weightedMargin(rows) {
++  const total = sum(rows);
++  if (!total) return 0;
++  return rows.reduce((acc, row) => acc + row.revenue * row.gross_margin, 0) / total;
++}
++
++function money(value) {
++  if (value >= 1000000) return `$${(value / 1000000).toFixed(2)}M`;
++  if (value >= 1000) return `$${Math.round(value / 1000)}K`;
++  return `$${value}`;
++}
++
++function pct(value) {
++  return `${Math.round(value * 100)}%`;
++}
++
++function barChart({ id, label, rows, testPrefix }) {
++  const max = Math.max(...rows.map((row) => row.value), 1);
++  const bars = rows.map((row, index) => {
++    const width = Math.max(2, (row.value / max) * 100);
++    return `
++      <div class="bar-row" data-testid="${testPrefix}-${row.label || row.month}" data-value="${row.value}">
++        <span>${row.label || row.month}</span>
++        <div class="bar-track" aria-hidden="true">
++          <div class="bar-fill tone-${index % 3}" style="width:${width}%"></div>
++        </div>
++        <strong>${money(row.value)}</strong>
++      </div>
++    `;
++  }).join("");
++  return `
++    <section class="chart-panel" data-testid="${id}" aria-label="${label}">
++      <div class="panel-heading">
++        <h2>${label}</h2>
++      </div>
++      <div class="bar-chart">${bars}</div>
+     </section>
+-  </main>
+-`;
++  `;
++}
++
++function monthlyChart(rows) {
++  const max = Math.max(...rows.map((row) => row.value), 1);
++  const bars = rows.map((row, index) => {
++    const height = Math.max(8, (row.value / max) * 132);
++    return `
++      <g data-testid="month-${row.month}" data-value="${row.value}">
++        <rect x="${index * 48 + 18}" y="${150 - height}" width="26" height="${height}" rx="5"></rect>
++        <text x="${index * 48 + 31}" y="174">${row.month}</text>
++      </g>
++    `;
++  }).join("");
++  return `
++    <section class="chart-panel primary">
++      <div class="panel-heading">
++        <h2>Monthly revenue trend</h2>
++        <p>Revenue climbed steadily through Q4, with December as the peak month.</p>
++      </div>
++      <svg data-testid="monthly-revenue-chart" aria-label="Monthly revenue chart" viewBox="0 0 600 190" role="img">
++        <g data-testid="monthly-revenue-series" data-series="monthly-revenue" data-points="${rows.length}">
++          ${bars}
++        </g>
++      </svg>
++    </section>
++  `;
++}
++
++function render(data, region = "All") {
++  const filtered = data.filter((row) => row.year === 2025 && (region === "All" || row.region === region));
++  const totalRevenue = sum(filtered);
++  const regions = groupSum(filtered, "region");
++  const categories = groupSum(filtered, "category");
++  const topRegion = groupSum(data.filter((row) => row.year === 2025), "region")[0];
++  const topCategory = groupSum(data.filter((row) => row.year === 2025), "category")[0];
++  const months = monthlyRows(filtered);
++  const margin = weightedMargin(filtered);
++
++  root.innerHTML = `
++    <main class="story-shell">
++      <section class="story-header">
++        <div>
++          <p class="eyebrow">2025 sales data story</p>
++          <h1>What drove 2025 revenue growth</h1>
++          <p data-testid="headline-insight" class="lede">
++            ${topRegion[0]} led revenue at ${money(topRegion[1])}, and ${topCategory[0]} was the largest category,
++            making regional platform demand the clearest growth driver.
++          </p>
++        </div>
++        <label class="filter-label">
++          Region
++          <select aria-label="Region" id="region-filter">
++            ${["All", ...new Set(data.map((row) => row.region))].map((item) => `
++              <option value="${item}" ${item === region ? "selected" : ""}>${item}</option>
++            `).join("")}
++          </select>
++        </label>
++      </section>
++
++      <section class="kpi-grid" aria-label="Key sales metrics">
++        <article data-testid="kpi-total-revenue" data-value="${totalRevenue}" class="kpi-card">
++          <span>Total revenue</span>
++          <strong>${money(totalRevenue)}</strong>
++          <em>${region === "All" ? "All regions" : region}</em>
++        </article>
++        <article data-testid="top-region" data-value="${topRegion[0]}" class="kpi-card">
++          <span>Top region</span>
++          <strong>${topRegion[0]}</strong>
++          <em>${money(topRegion[1])}</em>
++        </article>
++        <article data-testid="top-category" data-value="${topCategory[0]}" class="kpi-card">
++          <span>Top category</span>
++          <strong>${topCategory[0]}</strong>
++          <em>${money(topCategory[1])}</em>
++        </article>
++        <article class="kpi-card">
++          <span>Weighted margin</span>
++          <strong>${pct(margin)}</strong>
++          <em>Revenue weighted</em>
++        </article>
++      </section>
++
++      <section class="story-grid">
++        ${monthlyChart(months)}
++        ${barChart({
++          id: "region-breakdown-chart",
++          label: "Revenue by region",
++          rows: regions.map(([label, value]) => ({ label, value })),
++          testPrefix: "region",
++        })}
++        ${barChart({
++          id: "category-breakdown-chart",
++          label: "Revenue by category",
++          rows: categories.map(([label, value]) => ({ label, value })),
++          testPrefix: "category",
++        })}
++      </section>
++
++      <section class="notes-panel">
++        <h2>Data notes</h2>
++        <p>Revenue is summed from sales.csv. Gross margin is revenue-weighted so larger months and segments carry proportionate influence.</p>
++      </section>
++
++      <section class="details-panel">
++        <h2>Grouped values</h2>
++        <table>
++          <thead><tr><th>Month</th><th>Revenue</th></tr></thead>
++          <tbody>
++            ${months.map((row) => `<tr><td>${row.month}</td><td>${money(row.value)}</td></tr>`).join("")}
++          </tbody>
++        </table>
++      </section>
++    </main>
++  `;
++
++  document.querySelector("#region-filter").addEventListener("change", (event) => {
++    render(data, event.target.value);
++  });
++}
++
++fetch("/sales.csv")
++  .then((response) => response.text())
++  .then((text) => render(parseCsv(text)))
++  .catch((error) => {
++    root.innerHTML = `<main class="story-shell"><p>Could not load sales.csv: ${error.message}</p></main>`;
++  });
+diff --git a/src/styles.css b/src/styles.css
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -1,32 +1,246 @@
+ :root {
+-  color: #162033;
+-  background: #f5f7fb;
++  color: #172033;
++  background: #f3f6fa;
+   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+ }
+-
+-* {
+-  box-sizing: border-box;
+-}
+-
+-body {
+   margin: 0;
+   min-width: 320px;
+ }
+ 
+ .story-shell {
+   min-height: 100vh;
+-  padding: 32px;
+-}
+-
+-.empty-state {
+-  max-width: 760px;
+-  margin: 12vh auto 0;
++  width: min(1180px, 100%);
++  margin: 0 auto;
++  padding: 28px;
++}
++
++.story-header {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) 190px;
++  gap: 24px;
++  align-items: end;
++  padding: 18px 0 20px;
+ }
+ 
+ .eyebrow {
+-  color: #48627f;
++  color: #476173;
+   font-size: 0.82rem;
+   font-weight: 700;
+   letter-spacing: 0.08em;
+   text-transform: uppercase;
+ }
++
++h1,
++h2,
++p {
++  margin-top: 0;
++}
++
++h1 {
++  max-width: 780px;
++  margin-bottom: 12px;
++  font-size: 2.6rem;
++  line-height: 1.05;
++}
++
++h2 {
++  margin-bottom: 8px;
++  font-size: 1rem;
++}
++
++.lede {
++  max-width: 860px;
++  margin-bottom: 0;
++  color: #405366;
++  font-size: 1.04rem;
++  line-height: 1.55;
++}
++
++.filter-label {
++  display: grid;
++  gap: 8px;
++  color: #4b6074;
++  font-size: 0.82rem;
++  font-weight: 700;
++}
++
++select {
++  width: 100%;
++  border: 1px solid #becadd;
++  border-radius: 8px;
++  background: #fff;
++  color: #172033;
++  padding: 10px 12px;
++  font: inherit;
++}
++
++.kpi-grid {
++  display: grid;
++  grid-template-columns: repeat(4, minmax(0, 1fr));
++  gap: 12px;
++  margin: 16px 0 18px;
++}
++
++.kpi-card,
++.chart-panel,
++.notes-panel,
++.details-panel {
++  border: 1px solid #d7e0ec;
++  border-radius: 8px;
++  background: #fff;
++  box-shadow: 0 10px 28px rgba(31, 44, 65, 0.06);
++}
++
++.kpi-card {
++  display: grid;
++  gap: 8px;
++  min-height: 118px;
++  padding: 18px;
++}
++
++.kpi-card span {
++  color: #607287;
++  font-size: 0.82rem;
++  font-weight: 700;
++}
++
++.kpi-card strong {
++  color: #152034;
++  font-size: 1.7rem;
++  line-height: 1;
++}
++
++.kpi-card em {
++  color: #687a8e;
++  font-size: 0.86rem;
++  font-style: normal;
++}
++
++.story-grid {
++  display: grid;
++  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
++  gap: 14px;
++}
++
++.chart-panel {
++  padding: 18px;
++}
++
++.chart-panel.primary {
++  grid-row: span 2;
++}
++
++.panel-heading p {
++  margin-bottom: 12px;
++  color: #607287;
++  font-size: 0.9rem;
++}
++
++svg {
++  display: block;
++  width: 100%;
++  min-height: 250px;
++}
++
++svg rect {
++  fill: #2f6f73;
++}
++
++svg text {
++  fill: #607287;
++  font-size: 11px;
++  text-anchor: middle;
++}
++
++.bar-chart {
++  display: grid;
++  gap: 12px;
++  margin-top: 14px;
++}
++
++.bar-row {
++  display: grid;
++  grid-template-columns: 84px minmax(90px, 1fr) 72px;
++  gap: 10px;
++  align-items: center;
++  color: #44576b;
++  font-size: 0.88rem;
++}
++
++.bar-row strong {
++  color: #172033;
++  font-size: 0.88rem;
++  text-align: right;
++}
++
++.bar-track {
++  height: 12px;
++  overflow: hidden;
++  border-radius: 999px;
++  background: #e8eef5;
++}
++
++.bar-fill {
++  height: 100%;
++  border-radius: inherit;
++  background: #2f6f73;
++}
++
++.bar-fill.tone-1 {
++  background: #6f5b9a;
++}
++
++.bar-fill.tone-2 {
++  background: #b26b3e;
++}
++
++.notes-panel,
++.details-panel {
++  margin-top: 14px;
++  padding: 18px;
++}
++
++.notes-panel p {
++  margin-bottom: 0;
++  color: #4b6074;
++  line-height: 1.55;
++}
++
++table {
++  width: 100%;
++  border-collapse: collapse;
++  font-size: 0.9rem;
++}
++
++th,
++td {
++  border-top: 1px solid #e3e9f2;
++  padding: 10px 8px;
++  text-align: left;
++}
++
++th {
++  color: #61758a;
++  font-size: 0.75rem;
++  text-transform: uppercase;
++}
++
++@media (max-width: 820px) {
++  .story-shell {
++    padding: 18px;
++  }
++
++  .story-header,
++  .story-grid,
++  .kpi-grid {
++    grid-template-columns: 1fr;
++  }
++
++  h1 {
++    font-size: 2rem;
++  }
++
++  .bar-row {
++    grid-template-columns: 72px minmax(0, 1fr) 64px;
++  }
++}

@@ -3,8 +3,8 @@ import { useNavigate, Link, useLocation } from "react-router-dom";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { useStore } from "../../store";
-import { getJSONOrNull, postJSON } from "../../lib/api";
-import type { FinancialProfile, User } from "../../types";
+import { postJSON } from "../../lib/api";
+import type { User } from "../../types";
 
 export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const [username, setUsername] = useState("");
@@ -28,12 +28,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
         navigate(from, { replace: true });
         return;
       }
-      if (mode === "register") {
-        navigate("/dashboard", { replace: true });
-        return;
-      }
-      const profile = await getJSONOrNull<FinancialProfile>("/wealth/profile");
-      navigate(profile ? "/dashboard" : "/onboarding", { replace: true });
+      navigate("/chat", { replace: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Auth failed");
     } finally {

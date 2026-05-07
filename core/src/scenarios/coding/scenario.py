@@ -18,6 +18,9 @@ class CodingScenario(Scenario):
     def get_skill_names(self) -> list[str]:
         return ["coding"]
 
+    def is_app_artifact(self) -> bool:
+        return True
+
     def get_test_cases(self) -> list[dict[str, Any]]:
         cases_dir = Path(__file__).parent / "cases"
         cases = []
@@ -45,4 +48,3 @@ class CodingScenario(Scenario):
             "cost_usd": trace.total_usage.cost_usd,
             "duration_seconds": trace.duration_seconds,
         }
-

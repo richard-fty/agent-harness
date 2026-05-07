@@ -27,7 +27,7 @@ class RagIndexTool(BuiltinTool):
     )
     tool_group = ToolGroup.ADMIN
     loading_strategy = ToolLoadingStrategy.RUNTIME_INJECTED
-    feature_flag = "enable_rag"
+    feature_flag = "enable_rag_tools"
     requires_confirmation = True
     is_networked = True
     mutates_state = True
@@ -72,7 +72,7 @@ class RagQueryTool(BuiltinTool):
     )
     tool_group = ToolGroup.RETRIEVAL
     loading_strategy = ToolLoadingStrategy.FEATURE_GATED
-    feature_flag = "enable_rag"
+    feature_flag = "enable_rag_tools"
     is_read_only = True
     is_concurrency_safe = True
     requires_confirmation = False
@@ -132,7 +132,7 @@ class RagListCollectionsTool(BuiltinTool):
     )
     tool_group = ToolGroup.RETRIEVAL
     loading_strategy = ToolLoadingStrategy.FEATURE_GATED
-    feature_flag = "enable_rag"
+    feature_flag = "enable_rag_tools"
     is_read_only = True
     is_concurrency_safe = True
     requires_confirmation = False

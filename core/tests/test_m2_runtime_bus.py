@@ -13,6 +13,7 @@ import pytest
 from agent.core.models import PendingApproval, PermissionAction, PermissionDecision, ToolCall
 from agent.events import (
     ApprovalRequested,
+    AssistantMessage,
     AssistantToken,
     ErrorEvent,
     InMemoryEventBus,
@@ -72,7 +73,8 @@ class TestRuntimeBusHappyPath:
         # First event is TurnStarted; last event is StreamEnd with final_state=completed.
         assert isinstance(collected[0], TurnStarted)
         assert collected[0].user_input == "hi"
-        assert any(isinstance(e, AssistantToken) and e.text == "hello" for e in collected)
+        assert not any(isinstance(e, AssistantToken) for e in collected)
+        assert any(isinstance(e, AssistantMessage) and e.content == "hello" for e in collected)
         assert any(isinstance(e, UsageEvent) for e in collected)
         assert any(isinstance(e, TurnFinished) for e in collected)
         assert isinstance(collected[-1], StreamEnd)
@@ -193,7 +195,7 @@ class TestSharedTurnRunnerNoRace:
         ])
         # Build runner directly so we inject the shared bus + mocked brain.
         from agent.session.archive import SessionArchive
-        archive = SessionArchive(db_path=str(tmp_path / "a.db"))
+        archive = SessionArchive()
         runner = SharedTurnRunner(
             session_engine=FakeSessionEngine(),
             access_controller=AllowAccessController(),

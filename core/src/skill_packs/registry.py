@@ -22,16 +22,25 @@ def discover_skills() -> dict[str, SkillPack]:
     except ImportError:
         pass
 
+    # Demo mode: wealth guide is temporarily disabled so only stock analysis
+    # is available during the stock-analysis demo.
+    # try:
+    #     from skill_packs.wealth_guide.skill import WealthGuideSkill
+    #     skill = WealthGuideSkill()
+    #     available[skill.name] = skill
+    # except ImportError:
+    #     pass
+
     try:
-        from skill_packs.wealth_guide.skill import WealthGuideSkill
-        skill = WealthGuideSkill()
+        from skill_packs.coding.skill import CodingSkill
+        skill = CodingSkill()
         available[skill.name] = skill
     except ImportError:
         pass
 
     try:
-        from skill_packs.coding.skill import CodingSkill
-        skill = CodingSkill()
+        from skill_packs.data_viz.skill import DataVizSkill
+        skill = DataVizSkill()
         available[skill.name] = skill
     except ImportError:
         pass

@@ -19,7 +19,9 @@ from agent.runtime.guards import RuntimeConfig, RuntimeGuard
 from agent.runtime.sandbox import BaseSandbox, SandboxCommandResult
 from agent.runtime.trace import Trace
 from agent.runtime.tool_dispatch import ToolDispatch
+from agent.skills.analyzer import WorkflowStep
 from tools.filesystem import WriteFileTool
+from tools.planner import PlanManager
 
 
 class FakeStream:
@@ -93,11 +95,15 @@ class FakeDispatch:
 
 
 class FakeSkillLoader:
+    def __init__(self) -> None:
+        self.loaded: dict[str, Any] = {}
+        self.analyzed: dict[str, Any] = {}
+
     def get_available_skill_names(self) -> list[str]:
         return []
 
     def get_loaded_skill_names(self) -> list[str]:
-        return []
+        return list(self.loaded)
 
 
 class FakeContextManager:
@@ -135,6 +141,7 @@ class FakeSessionEngine:
         self.context_strategy = "truncate"
         self.dispatch = FakeDispatch()
         self.skill_loader = FakeSkillLoader()
+        self.plan_manager = PlanManager()
         self.context_mgr = FakeContextManager()
         self.messages: list[dict[str, Any]] = []
 
@@ -155,6 +162,25 @@ class FakeSessionEngine:
 
     async def prepare_for_model(self, user_input: str) -> FakePrepared:
         return FakePrepared(messages=self.messages, tool_schemas=[], retrieval=FakeRetrieval())
+
+
+class StockWorkflowSessionEngine(FakeSessionEngine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.skill_loader.analyzed["stock_strategy"] = SimpleNamespace(
+            planning_mode="off",
+            workflow=[
+                WorkflowStep(order=1, action="Resolve the company and ticker.", tool_hint=""),
+                WorkflowStep(order=2, action="Call Yahoo Finance market data: fetch_market_data", tool_hint="fetch_market_data"),
+                WorkflowStep(order=3, action="Call one web research query: web_research", tool_hint="web_research"),
+            ]
+        )
+
+    def pre_load_for_input(self, user_input: str) -> list[str]:
+        if "stock_strategy" not in self.skill_loader.loaded:
+            self.skill_loader.loaded["stock_strategy"] = object()
+            return ["stock_strategy"]
+        return []
 
 
 class SandboxAwareSessionEngine(FakeSessionEngine):
@@ -220,6 +246,210 @@ def test_managed_runtime_persists_completed_session(tmp_path) -> None:
     assert record is not None
     assert record["state"] == "completed"
     assert trace.final_output == "done"
+
+
+def test_stock_turn_allows_distinct_purpose_web_research_calls() -> None:
+    engine = FakeSessionEngine()
+    engine.skill_loader.loaded["stock_strategy"] = object()
+    calls: list[str] = []
+
+    async def execute(tool_call: ToolCall) -> Any:
+        calls.append(tool_call.name)
+        return SimpleNamespace(content="{}", success=True)
+
+    engine.dispatch.execute = execute  # type: ignore[method-assign]
+    runtime = ManagedAgentRuntime(
+        session_engine=engine,
+        model="fake-model",
+        runtime_config=RuntimeConfig(max_steps=3, timeout_seconds=30),
+        access_controller=AllowAccessController(),
+        brain=FakeBrain([]),
+    )
+    runtime.session.current_user_input = "analyze SMCI stock"
+
+    import asyncio
+    first = asyncio.run(runtime._execute_tool_call(ToolCall(
+        id="call_1",
+        name="web_research",
+        arguments={"query": "Super Micro Computer latest news", "num_results": 5, "fetch_top": 0},
+    )))
+    second = asyncio.run(runtime._execute_tool_call(ToolCall(
+        id="call_2",
+        name="web_research",
+        arguments={"query": "Super Micro Computer recent news", "num_results": 5},
+    )))
+
+    assert first[2] is True
+    assert second[2] is True
+    assert calls == ["web_research", "web_research"]
+
+
+def test_stock_turn_does_not_block_duplicate_web_research_purpose() -> None:
+    engine = FakeSessionEngine()
+    engine.skill_loader.loaded["stock_strategy"] = object()
+    calls: list[str] = []
+
+    async def execute(tool_call: ToolCall) -> Any:
+        calls.append(tool_call.name)
+        return SimpleNamespace(content="{}", success=True)
+
+    engine.dispatch.execute = execute  # type: ignore[method-assign]
+    runtime = ManagedAgentRuntime(
+        session_engine=engine,
+        model="fake-model",
+        runtime_config=RuntimeConfig(max_steps=3, timeout_seconds=30),
+        access_controller=AllowAccessController(),
+        brain=FakeBrain([]),
+    )
+    runtime.session.current_user_input = "analyze SMCI stock"
+
+    import asyncio
+    second = asyncio.run(runtime._execute_tool_call(ToolCall(
+        id="call_2",
+        name="web_research",
+        arguments={"query": "Super Micro Computer latest news", "num_results": 5},
+    )))
+
+    assert second[2] is True
+    assert calls == ["web_research"]
+
+
+def test_stock_turn_does_not_block_after_five_web_research_calls() -> None:
+    engine = FakeSessionEngine()
+    engine.skill_loader.loaded["stock_strategy"] = object()
+    calls: list[str] = []
+
+    async def execute(tool_call: ToolCall) -> Any:
+        calls.append(tool_call.name)
+        return SimpleNamespace(content="{}", success=True)
+
+    engine.dispatch.execute = execute  # type: ignore[method-assign]
+    runtime = ManagedAgentRuntime(
+        session_engine=engine,
+        model="fake-model",
+        runtime_config=RuntimeConfig(max_steps=3, timeout_seconds=30),
+        access_controller=AllowAccessController(),
+        brain=FakeBrain([]),
+    )
+    runtime.session.current_user_input = "analyze SMCI stock"
+
+    import asyncio
+    result = asyncio.run(runtime._execute_tool_call(ToolCall(
+        id="call_6",
+        name="web_research",
+        arguments={"query": "Super Micro Computer latest news", "num_results": 5},
+    )))
+
+    assert result[2] is True
+    assert calls == ["web_research"]
+
+
+def test_stock_web_research_arguments_are_preserved_before_execution() -> None:
+    engine = FakeSessionEngine()
+    engine.skill_loader.loaded["stock_strategy"] = object()
+    seen_arguments: list[dict[str, Any]] = []
+
+    async def execute(tool_call: ToolCall) -> Any:
+        seen_arguments.append(dict(tool_call.arguments))
+        return SimpleNamespace(content="{}", success=True)
+
+    engine.dispatch.execute = execute  # type: ignore[method-assign]
+    runtime = ManagedAgentRuntime(
+        session_engine=engine,
+        model="fake-model",
+        runtime_config=RuntimeConfig(max_steps=3, timeout_seconds=30),
+        access_controller=AllowAccessController(),
+        brain=FakeBrain([]),
+    )
+    runtime.session.current_user_input = "Can you check the stock of Supermacro?"
+
+    import asyncio
+
+    async def run() -> list[Any]:
+        events = []
+        async for event in runtime._handle_tool_call(ToolCall(
+            id="call_1",
+            name="web_research",
+            arguments={"query": "latest news on it", "num_results": 10, "fetch_top": 3},
+        )):
+            events.append(event)
+        return events
+
+    events = asyncio.run(run())
+    started = next(event for event in events if event.type == "tool_started")
+
+    assert started.data["arguments"] == {
+        "query": "latest news on it",
+        "num_results": 10,
+        "fetch_top": 3,
+    }
+    assert seen_arguments == [started.data["arguments"]]
+
+
+def test_stock_ticker_lookup_query_is_not_rewritten() -> None:
+    engine = FakeSessionEngine()
+    engine.skill_loader.loaded["stock_strategy"] = object()
+    seen_arguments: list[dict[str, Any]] = []
+
+    async def execute(tool_call: ToolCall) -> Any:
+        seen_arguments.append(dict(tool_call.arguments))
+        return SimpleNamespace(content="{}", success=True)
+
+    engine.dispatch.execute = execute  # type: ignore[method-assign]
+    runtime = ManagedAgentRuntime(
+        session_engine=engine,
+        model="fake-model",
+        runtime_config=RuntimeConfig(max_steps=3, timeout_seconds=30),
+        access_controller=AllowAccessController(),
+        brain=FakeBrain([]),
+    )
+    runtime.session.current_user_input = "Analyze Datadog stock"
+
+    import asyncio
+
+    async def run() -> list[Any]:
+        events = []
+        async for event in runtime._handle_tool_call(ToolCall(
+            id="call_1",
+            name="web_research",
+            arguments={"query": "Datadog ticker symbol lookup", "num_results": 10, "fetch_top": 2},
+        )):
+            events.append(event)
+        return events
+
+    events = asyncio.run(run())
+    started = next(event for event in events if event.type == "tool_started")
+
+    assert started.data["arguments"] == {
+        "query": "Datadog ticker symbol lookup",
+        "num_results": 10,
+        "fetch_top": 2,
+    }
+    assert seen_arguments == [started.data["arguments"]]
+
+
+def test_stock_skill_load_does_not_emit_workflow_plan() -> None:
+    brain = FakeBrain([[_chunk(content="done", usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2))]])
+    runtime = ManagedAgentRuntime(
+        session_engine=StockWorkflowSessionEngine(),
+        model="fake-model",
+        runtime_config=RuntimeConfig(max_steps=2, timeout_seconds=30),
+        access_controller=AllowAccessController(),
+        brain=brain,
+    )
+
+    import asyncio
+
+    async def collect() -> list[Any]:
+        events = []
+        async for event in runtime.start_turn("analyze SMCI stock", guard=RuntimeGuard(runtime.runtime_config)):
+            events.append(event)
+        return events
+
+    events = asyncio.run(collect())
+
+    assert all(event.type != "workflow_plan_updated" for event in events)
+    assert runtime.session_engine.plan_manager.view() == "No plan created yet. Call todo_write to create one."
 
 
 def test_managed_runtime_pauses_for_approval(tmp_path) -> None:

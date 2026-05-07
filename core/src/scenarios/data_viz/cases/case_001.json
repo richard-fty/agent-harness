@@ -1,0 +1,27 @@
+{
+  "id": "sales_story_001",
+  "title": "Tell the sales growth story",
+  "tier": "DV1",
+  "template": "vite-data-story",
+  "input": "Build an interactive data story showing what drove 2025 revenue growth. Use sales.csv. Include monthly revenue, revenue by region, top product categories, margin trend, and filters for year and region.",
+  "public_data": ["cases/case_001/public/sales.csv"],
+  "hidden_playwright_spec": "cases/case_001/hidden/dashboard.spec.mjs",
+  "expected_metrics": "cases/case_001/hidden/expected_metrics.json",
+  "golden_patch": "cases/case_001/golden/patch.diff",
+  "allowed_paths": ["src/**", "package.json", "index.html"],
+  "required_plan_steps": [
+    "inspect dataset",
+    "derive metrics",
+    "build story layout",
+    "add filters",
+    "verify calculations",
+    "start preview"
+  ],
+  "manifest": {
+    "install": ["pnpm", "install", "--frozen-lockfile", "--prefer-offline"],
+    "build": ["pnpm", "build"],
+    "test": ["pnpm", "exec", "playwright", "test", "cases/case_001/hidden/dashboard.spec.mjs", "--reporter=json"],
+    "budget": { "max_steps": 40, "max_cost_usd": 1.0, "max_wall_sec": 420 },
+    "limits": { "memory_mb": 1024, "cpus": 1.0, "max_stdout_kb": 2048 }
+  }
+}

@@ -76,7 +76,7 @@ def build_default_app_state(
     if database_url is None:
         database_url = os.environ.get("DATABASE_URL")
     if not database_url:
-        raise RuntimeError("DATABASE_URL is required. SQLite storage has been removed.")
+        raise RuntimeError("DATABASE_URL is required for Postgres storage.")
     archive = SessionArchive(database_url)
     return AppState(
         archive=archive,

@@ -149,7 +149,7 @@ class SkillLoader:
             Level-1 index + `load_skill` meta-tool).
           - 11–50 packs → HybridStrategy (BM25 + optional vector, RRF-fused).
 
-        Returns the names of packs that were pre-loaded this turn.
+        Returns the name of the single best pack pre-loaded this turn.
         """
         if self._intent_strategy is None:
             return []
@@ -162,7 +162,10 @@ class SkillLoader:
                 if name not in self.loaded
             ]
             scored.sort(key=lambda item: item[1], reverse=True)
-            candidates = [name for name, score in scored if score >= 0.35]
+            candidates = [name for name, score in scored[:1] if score >= 0.35]
+        else:
+            candidates = candidates[:1]
+
         pre_loaded: list[str] = []
         for name in candidates:
             if name in self.loaded or name not in self.available:

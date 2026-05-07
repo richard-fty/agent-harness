@@ -27,7 +27,9 @@ from agent.artifacts import ArtifactStore, FilesystemArtifactStore
 from agent.events import (
     ApprovalRequested,
     ApprovalResolved,
+    AssistantMessage,
     AssistantNote,
+    AssistantSnapshot,
     AssistantToken,
     EducationDisclaimer,
     ErrorEvent,
@@ -63,6 +65,19 @@ logger = logging.getLogger(__name__)
 
 _SKILL_MUTATING_TOOLS = {"load_skill", "unload_skill"}
 _PLAN_MUTATING_TOOLS = {"todo_write", "todo_update"}
+_TYPED_EVENT_ARCHIVE_MIRRORS = {
+    "approval_requested",
+    "approval_resolved",
+    "assistant_note",
+    "education_disclaimer",
+    "error",
+    "skill_auto_loaded",
+    "tool_denied",
+    "tool_finished",
+    "tool_started",
+    "turn_finished",
+    "usage",
+}
 _MAX_LLM_RETRIES = 3
 _RETRYABLE_ERRORS = (
     litellm.RateLimitError,
@@ -200,6 +215,8 @@ class ManagedAgentRuntime:
         self.artifact_store: ArtifactStore = artifact_store or FilesystemArtifactStore()
 
         self.session = SessionRecord(session_id=session_id or str(uuid.uuid4()))
+        self.active_run: dict[str, dict[str, Any]] = {}
+        self._persisted_session_event_count = 0
         self.sandbox = sandbox or create_session_sandbox(session_id=self.session.session_id)
         self._sandbox_provisioned = False
         self.session.metadata = {
@@ -224,8 +241,27 @@ class ManagedAgentRuntime:
             "turn_id": self.session.turn_id,
         }
 
-    async def _publish(self, event: TypedAgentEvent) -> None:
-        """Publish a typed AgentEvent to the bus (non-fatal on failure)."""
+    async def _publish(self, event: TypedAgentEvent, *, persist: bool = True) -> None:
+        """Persist a typed AgentEvent when durable, then publish it live."""
+        if persist and self.archive is not None:
+            payload = event.model_dump(exclude={"seq", "timestamp", "session_id"})
+            try:
+                seq = await asyncio.to_thread(
+                    self.archive.emit_event,
+                    self.session.session_id,
+                    event.type,
+                    payload,
+                )
+                event.seq = seq
+                self.active_run[self.session.session_id] = {
+                    "status": "running",
+                    "last_heartbeat_at": time.time(),
+                    "last_seq": seq,
+                    "turn_id": self.session.turn_id,
+                }
+            except Exception:
+                logger.debug("Archive typed event write failed; suppressing live publish", exc_info=True)
+                return
         try:
             await self.event_bus.publish(self.session.session_id, event)
         except Exception:
@@ -251,7 +287,9 @@ class ManagedAgentRuntime:
         *,
         guard: RuntimeGuard,
         trace: Trace | None = None,
+        display_user_input: str | None = None,
     ) -> AsyncIterator[ManagedEvent]:
+        visible_user_input = display_user_input or user_input
         self.session.current_user_input = user_input
         self.session.step = 0
         self.session.turn_id = str(uuid.uuid4())
@@ -259,11 +297,18 @@ class ManagedAgentRuntime:
         self.session.metadata["education_scope_used"] = False
         self.session.metadata["education_disclaimer_emitted"] = False
         self.session.set_state(AgentState.RUNNING)
-        self.session.append_event("user_input_received", user_input=user_input)
+        self.session.append_event(
+            "user_input_received",
+            user_input=visible_user_input,
+            effective_user_input=user_input if visible_user_input != user_input else None,
+        )
         self._persist_session()
 
-        await self._publish(TurnStarted(**self._bus_kwargs(), user_input=user_input))
-        yield ManagedEvent("turn_started", {"session_id": self.session.session_id, "user_input": user_input})
+        await self._publish(TurnStarted(**self._bus_kwargs(), user_input=visible_user_input))
+        yield ManagedEvent(
+            "turn_started",
+            {"session_id": self.session.session_id, "user_input": visible_user_input},
+        )
 
         pre_loaded = self.session_engine.pre_load_for_input(user_input)
         for skill_name in pre_loaded:
@@ -334,11 +379,16 @@ class ManagedAgentRuntime:
             )
 
         tool_call = pending.tool_call
-        tool_ms, result_content, result_success = await self._execute_resolved_tool_call(tool_call, resolved)
+        tool_ms, result_content, result_success = await self._execute_resolved_tool_call(
+            tool_call,
+            resolved,
+            trace=trace,
+        )
         search_results = self._extract_search_results(tool_name=tool_call.name, content=result_content)
         self.session_engine.add_tool_message(tool_call.id, tool_call.name, result_content)
         self.session.append_event(
             "tool_finished",
+            tool_call_id=tool_call.id,
             tool_name=tool_call.name,
             arguments=tool_call.arguments,
             success=result_success,
@@ -360,6 +410,7 @@ class ManagedAgentRuntime:
             ToolFinished(
                 **self._bus_kwargs(),
                 step=self.session.step,
+                tool_call_id=tool_call.id,
                 name=tool_call.name,
                 arguments=tool_call.arguments,
                 success=result_success,
@@ -371,6 +422,7 @@ class ManagedAgentRuntime:
         yield ManagedEvent(
             "tool_finished",
             {
+                "tool_call_id": tool_call.id,
                 "name": tool_call.name,
                 "arguments": tool_call.arguments,
                 "success": result_success,
@@ -544,6 +596,8 @@ class ManagedAgentRuntime:
             tool_calls_raw: list[dict[str, Any]] = []
             usage_data = None
             saw_stream_text = False
+            last_snapshot_at = time.time()
+            last_snapshot_len = 0
 
             async for chunk in response:
                 delta = chunk.choices[0].delta if chunk.choices else None
@@ -553,7 +607,23 @@ class ManagedAgentRuntime:
                 if delta.content:
                     saw_stream_text = True
                     full_content += delta.content
-                    await self._publish(AssistantToken(**self._bus_kwargs(), text=delta.content))
+                    await self._publish(
+                        AssistantToken(**self._bus_kwargs(), text=delta.content),
+                        persist=False,
+                    )
+                    now = time.time()
+                    if (
+                        len(full_content) - last_snapshot_len >= 500
+                        or now - last_snapshot_at >= 1.0
+                    ):
+                        await self._publish(
+                            AssistantSnapshot(
+                                **self._bus_kwargs(),
+                                content=full_content,
+                            )
+                        )
+                        last_snapshot_len = len(full_content)
+                        last_snapshot_at = now
                     yield ManagedEvent("token", {"text": delta.content})
 
                 if delta.tool_calls:
@@ -673,8 +743,9 @@ class ManagedAgentRuntime:
                         self.session.append_event(event_type, **payload)
                         self._persist_session()
                         plan_steps = _plan_payload_to_steps(payload)
-                        await self._publish(PlanUpdated(**self._bus_kwargs(), steps=plan_steps))
-                        yield ManagedEvent("plan_updated", payload)
+                        kind = self._current_plan_kind()
+                        await self._publish(PlanUpdated(**self._bus_kwargs(), steps=plan_steps, kind=kind))
+                        yield ManagedEvent("plan_updated", {**payload, "kind": kind})
 
                 guard.increment_step()
                 self.session.step += 1
@@ -698,6 +769,8 @@ class ManagedAgentRuntime:
             self.session.append_event("turn_finished", content=full_content)
             self._persist_session()
             await self.close()
+            if full_content:
+                await self._publish(AssistantMessage(**self._bus_kwargs(), content=full_content))
             await self._publish(TurnFinished(**self._bus_kwargs(), content=full_content))
             await self._emit_stream_end("completed")
             yield ManagedEvent("turn_finished", {"content": full_content})
@@ -713,15 +786,34 @@ class ManagedAgentRuntime:
             ToolStarted(
                 **self._bus_kwargs(),
                 step=self.session.step,
+                tool_call_id=tool_call.id,
                 name=tool_call.name,
                 arguments=tool_call.arguments,
             )
         )
-        yield ManagedEvent("tool_started", {"name": tool_call.name, "arguments": tool_call.arguments})
-        self.session.append_event("tool_started", step=self.session.step, tool_name=tool_call.name, arguments=tool_call.arguments)
+        yield ManagedEvent(
+            "tool_started",
+            {
+                "tool_call_id": tool_call.id,
+                "name": tool_call.name,
+                "arguments": tool_call.arguments,
+            },
+        )
+        self.session.append_event(
+            "tool_started",
+            step=self.session.step,
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            arguments=tool_call.arguments,
+        )
         self._persist_session()
 
-        auto_loaded_skill = self.session_engine.skill_loader.load_skill_for_tool(tool_call.name)
+        load_skill_for_tool = getattr(self.session_engine.skill_loader, "load_skill_for_tool", None)
+        auto_loaded_skill = (
+            load_skill_for_tool(tool_call.name)
+            if callable(load_skill_for_tool)
+            else None
+        )
         if auto_loaded_skill:
             self.session_engine.rebuild_system_prompt()
             self.session.append_event("skill_auto_loaded", skill_name=auto_loaded_skill)
@@ -753,7 +845,7 @@ class ManagedAgentRuntime:
                         detail=result_content,
                     )
             elif self.access_controller is not None:
-                if tool_def.compliance_scope == "education":
+                if getattr(tool_def, "compliance_scope", None) == "education":
                     self._mark_education_scope_used()
                     async for event in self._emit_education_disclaimer_if_needed():
                         yield event
@@ -769,16 +861,29 @@ class ManagedAgentRuntime:
                 if decision.action == PermissionAction.DENY:
                     result_content = f"Access denied: {decision.reason}"
                     result_success = False
-                    self.session.append_event("tool_denied", tool_name=tool_call.name, reason=decision.reason)
+                    self.session.append_event(
+                        "tool_denied",
+                        tool_call_id=tool_call.id,
+                        tool_name=tool_call.name,
+                        reason=decision.reason,
+                    )
                     self._persist_session()
                     await self._publish(
                         ToolDenied(
                             **self._bus_kwargs(),
+                            tool_call_id=tool_call.id,
                             name=tool_call.name,
                             reason=decision.reason,
                         )
                     )
-                    yield ManagedEvent("tool_denied", {"name": tool_call.name, "reason": decision.reason})
+                    yield ManagedEvent(
+                        "tool_denied",
+                        {
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call.name,
+                            "reason": decision.reason,
+                        },
+                    )
                 elif decision.action == PermissionAction.ASK:
                     pending = self.access_controller.create_pending(tool_call, decision)
                     self.session.pending_approval = pending
@@ -800,8 +905,11 @@ class ManagedAgentRuntime:
                     )
                     return
                 else:
-                    tool_ms, result_content, result_success = await self._execute_allowed_tool_call(tool_call)
-                    if tool_def.compliance_scope == "education":
+                    tool_ms, result_content, result_success = await self._execute_allowed_tool_call(
+                        tool_call,
+                        trace=trace,
+                    )
+                    if getattr(tool_def, "compliance_scope", None) == "education":
                         result_content, allowed = enforce_education_content(result_content)
                         result_success = result_success and allowed
                     search_results = self._extract_search_results(tool_name=tool_call.name, content=result_content)
@@ -815,6 +923,7 @@ class ManagedAgentRuntime:
                     self.session_engine.add_tool_message(tool_call.id, tool_call.name, result_content)
                     self.session.append_event(
                         "tool_finished",
+                        tool_call_id=tool_call.id,
                         tool_name=tool_call.name,
                         arguments=tool_call.arguments,
                         success=result_success,
@@ -836,6 +945,7 @@ class ManagedAgentRuntime:
                         ToolFinished(
                             **self._bus_kwargs(),
                             step=self.session.step,
+                            tool_call_id=tool_call.id,
                             name=tool_call.name,
                             arguments=tool_call.arguments,
                             success=result_success,
@@ -847,6 +957,7 @@ class ManagedAgentRuntime:
                     yield ManagedEvent(
                         "tool_finished",
                         {
+                            "tool_call_id": tool_call.id,
                             "name": tool_call.name,
                             "arguments": tool_call.arguments,
                             "success": result_success,
@@ -857,12 +968,15 @@ class ManagedAgentRuntime:
                     )
                     return
             else:
-                if tool_def.compliance_scope == "education":
+                if getattr(tool_def, "compliance_scope", None) == "education":
                     self._mark_education_scope_used()
                     async for event in self._emit_education_disclaimer_if_needed():
                         yield event
-                tool_ms, result_content, result_success = await self._execute_tool_call(tool_call)
-                if tool_def.compliance_scope == "education":
+                tool_ms, result_content, result_success = await self._execute_tool_call(
+                    tool_call,
+                    trace=trace,
+                )
+                if getattr(tool_def, "compliance_scope", None) == "education":
                     result_content, allowed = enforce_education_content(result_content)
                     result_success = result_success and allowed
                 search_results = self._extract_search_results(tool_name=tool_call.name, content=result_content)
@@ -876,6 +990,7 @@ class ManagedAgentRuntime:
                 self.session_engine.add_tool_message(tool_call.id, tool_call.name, result_content)
                 self.session.append_event(
                     "tool_finished",
+                    tool_call_id=tool_call.id,
                     tool_name=tool_call.name,
                     arguments=tool_call.arguments,
                     success=result_success,
@@ -897,6 +1012,7 @@ class ManagedAgentRuntime:
                     ToolFinished(
                         **self._bus_kwargs(),
                         step=self.session.step,
+                        tool_call_id=tool_call.id,
                         name=tool_call.name,
                         arguments=tool_call.arguments,
                         success=result_success,
@@ -908,6 +1024,7 @@ class ManagedAgentRuntime:
                 yield ManagedEvent(
                     "tool_finished",
                     {
+                        "tool_call_id": tool_call.id,
                         "name": tool_call.name,
                         "arguments": tool_call.arguments,
                         "success": result_success,
@@ -924,6 +1041,7 @@ class ManagedAgentRuntime:
         self.session_engine.add_tool_message(tool_call.id, tool_call.name, result_content)
         self.session.append_event(
             "tool_finished",
+            tool_call_id=tool_call.id,
             tool_name=tool_call.name,
             arguments=tool_call.arguments,
             success=result_success,
@@ -945,6 +1063,7 @@ class ManagedAgentRuntime:
             ToolFinished(
                 **self._bus_kwargs(),
                 step=self.session.step,
+                tool_call_id=tool_call.id,
                 name=tool_call.name,
                 arguments=tool_call.arguments,
                 success=result_success,
@@ -956,6 +1075,7 @@ class ManagedAgentRuntime:
         yield ManagedEvent(
             "tool_finished",
             {
+                "tool_call_id": tool_call.id,
                 "name": tool_call.name,
                 "arguments": tool_call.arguments,
                 "success": result_success,
@@ -1008,29 +1128,36 @@ class ManagedAgentRuntime:
     def _set_cancel_requested(self, value: bool) -> None:
         self.session.metadata["cancel_requested"] = value
 
-    async def _execute_allowed_tool_call(self, tool_call: ToolCall) -> tuple[float, str, bool]:
+    async def _execute_allowed_tool_call(self, tool_call: ToolCall, trace: Trace | None = None) -> tuple[float, str, bool]:
         self.access_controller.record_allow(tool_call.name)
-        return await self._execute_tool_call(tool_call)
+        return await self._execute_tool_call(tool_call, trace=trace)
 
-    async def _execute_resolved_tool_call(self, tool_call: ToolCall, decision: Any) -> tuple[float, str, bool]:
+    async def _execute_resolved_tool_call(
+        self,
+        tool_call: ToolCall,
+        decision: Any,
+        trace: Trace | None = None,
+    ) -> tuple[float, str, bool]:
         tool_start = time.time()
         if decision.action == PermissionAction.DENY:
             result_content = f"Access denied: {decision.reason}"
             result_success = False
         else:
             self.access_controller.record_allow(tool_call.name)
-            _, result_content, result_success = await self._execute_tool_call(tool_call)
+            _, result_content, result_success = await self._execute_tool_call(tool_call, trace=trace)
         tool_ms = (time.time() - tool_start) * 1000
         result_content = self.session_engine.context_mgr.compact_tool_result(result_content)
         return tool_ms, result_content, result_success
 
-    async def _execute_tool_call(self, tool_call: ToolCall) -> tuple[float, str, bool]:
+    async def _execute_tool_call(self, tool_call: ToolCall, trace: Trace | None = None) -> tuple[float, str, bool]:
         tool_start = time.time()
         ctx = ToolContext(
             session_id=self.session.session_id,
             turn_id=self.session.turn_id,
             event_bus=self.event_bus,
             artifact_store=self.artifact_store,
+            trace=trace,
+            current_step=self.session.step,
         )
         try:
             if not self._sandbox_provisioned:
@@ -1047,6 +1174,14 @@ class ManagedAgentRuntime:
         tool_ms = (time.time() - tool_start) * 1000
         result_content = self.session_engine.context_mgr.compact_tool_result(result.content)
         return tool_ms, result_content, result.success
+
+    def _current_plan_kind(self) -> str:
+        loaded = getattr(self.session_engine.skill_loader, "loaded", {})
+        if "data_viz" in loaded:
+            return "coding"
+        if "coding" in loaded:
+            return "coding"
+        return "task"
 
     def _map_event_to_trace(
         self,
@@ -1083,6 +1218,17 @@ class ManagedAgentRuntime:
             ))
         elif event.type == "tool_started":
             callback(AgentEvent(type=EventType.TOOL_CALL_START, step=self.session.step, data=event.data))
+        elif event.type == "plan_updated":
+            trace.record_plan_update(
+                step=self.session.step,
+                kind=event.data.get("kind", "task"),
+                payload=event.data,
+            )
+        elif event.type == "skill_auto_loaded":
+            trace.record_skill_load(
+                step=self.session.step,
+                skill_name=event.data.get("skill_name", ""),
+            )
         elif event.type == "tool_finished":
             content_preview = event.data.get("content", "")[:400]
             urls = re.findall(r"https?://[^\s\"'<>]+", event.data.get("content", ""))
@@ -1162,8 +1308,10 @@ class ManagedAgentRuntime:
             # if state flipped first, a consumer polling in the gap between the
             # state write and the event writes would see a terminal state, miss
             # the trailing events, and exit the stream prematurely.
-            persisted_seq = self.archive.get_last_seq(self.session.session_id)
-            for event in self.session.events[persisted_seq:]:
+            for event in self.session.events[self._persisted_session_event_count:]:
+                self._persisted_session_event_count += 1
+                if event["type"] in _TYPED_EVENT_ARCHIVE_MIRRORS:
+                    continue
                 try:
                     self.archive.emit_event(
                         self.session.session_id,
@@ -1172,6 +1320,7 @@ class ManagedAgentRuntime:
                     )
                 except Exception:
                     logger.debug("Archive event write failed (non-fatal)", exc_info=True)
+                    self._persisted_session_event_count -= 1
                     break
             try:
                 self.archive.update_session_state(

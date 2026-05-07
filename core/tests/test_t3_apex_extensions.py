@@ -307,6 +307,21 @@ class TestT32RetrievalPolicyRouting:
                 f"'{hint}' should prefer web search but did not"
             )
 
+    def test_stock_requests_bypass_hidden_retrieval(self) -> None:
+        """Stock prompts should not trigger hidden RAG/web-research routing."""
+        from services.retrieval_policy import ResearchPolicy, _is_stock_request_for
+
+        text = "Can you analyze SMCI stock and write a report with latest news?"
+        assert _is_stock_request_for(text)
+
+        policy = ResearchPolicy()
+        ctx = asyncio.run(policy.evaluate(text))
+
+        assert not ctx.used
+        assert not ctx.should_offer_runtime_tools
+        assert not ctx.injected_message
+        assert ctx.route == "default"
+
 
 # ---------------------------------------------------------------------------
 # T3.3 — approval_allow_ask_deny

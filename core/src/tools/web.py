@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from datetime import datetime
 from typing import Any
 
 import httpx
@@ -51,6 +50,20 @@ class WebResearchTool(BuiltinTool):
             required=False,
             default=4000,
         ),
+        ToolParameter(
+            name="topic",
+            type="string",
+            description='Search topic for Tavily: "general" or "news" (default: "general")',
+            required=False,
+            default="general",
+            enum=["general", "news"],
+        ),
+        ToolParameter(
+            name="time_range",
+            type="string",
+            description='Tavily recency filter such as "day", "week", "month", or "year"',
+            required=False,
+        ),
     ]
 
     def __init__(self) -> None:
@@ -61,15 +74,29 @@ class WebResearchTool(BuiltinTool):
         raw_num_results = kwargs.get("num_results", 5)
         raw_fetch_top = kwargs.get("fetch_top", 0)
         raw_max_chars = kwargs.get("max_chars", 4000)
+        topic = str(kwargs.get("topic") or "general").strip().lower()
+        if topic not in {"general", "news"}:
+            topic = "general"
+        time_range = kwargs.get("time_range")
+        time_range = str(time_range).strip().lower() if time_range else None
+        if topic == "news":
+            query = _normalize_news_query(query)
+            time_range = time_range or "week"
         num_results = max(1, min(int(5 if raw_num_results is None else raw_num_results), 10))
         fetch_top = max(0, min(int(0 if raw_fetch_top is None else raw_fetch_top), 5))
         max_chars = max(250, int(4000 if raw_max_chars is None else raw_max_chars))
 
         queries_used = _plan_research_queries(query)
-        per_query_limit = max(2, min(num_results, 4))
+        per_query_limit = num_results if len(queries_used) == 1 else max(2, min(num_results, 4))
         raw_results: list[dict[str, str]] = []
         for planned_query in queries_used:
-            raw_results.extend(await search_web(planned_query, max_results=per_query_limit))
+            raw_results.extend(await search_web(
+                planned_query,
+                max_results=per_query_limit,
+                include_raw_content=fetch_top > 0,
+                topic=topic,
+                time_range=time_range,
+            ))
         deduped_results: list[dict[str, str]] = []
         seen_urls: set[str] = set()
         for item in raw_results:
@@ -77,16 +104,21 @@ class WebResearchTool(BuiltinTool):
             if not url or url in seen_urls:
                 continue
             seen_urls.add(url)
-            deduped_results.append({
+            result = {
                 "title": (item.get("title") or url).strip(),
                 "url": url,
                 "snippet": (item.get("snippet") or "").strip(),
-            })
+            }
+            if item.get("text"):
+                result["text"] = item["text"][:max_chars]
+            deduped_results.append(result)
             if len(deduped_results) >= num_results:
                 break
 
         async def fetch_result(result: dict[str, str]) -> dict[str, Any]:
             enriched: dict[str, Any] = dict(result)
+            if enriched.get("text"):
+                return enriched
             url = result["url"]
             try:
                 text = self._page_cache.get(url)
@@ -114,86 +146,75 @@ class WebResearchTool(BuiltinTool):
         payload = {
             "query": query,
             "queries_used": queries_used,
+            "topic": topic,
+            "time_range": time_range,
             "results": enriched_results,
         }
         return json.dumps(payload, indent=2)
 
 
-_FOCUSED_COMPANY_NEWS_HINTS = {
-    "earnings",
-    "guidance",
-    "analyst",
-    "downgrade",
-    "upgrade",
-    "layoff",
-    "layoffs",
-    "lawsuit",
-    "acquisition",
-    "merger",
-    "regulation",
-    "regulatory",
-    "sec",
-    "filing",
-    "product",
-    "launch",
-    "latest",
-    "news",
-    "outlook",
-    "demand",
-    "strategy",
-}
-
-_GENERIC_STOCK_QUERY_MARKERS = {
-    "stock",
-    "analysis",
-    "financial",
-    "performance",
-    "recent",
-    "information",
-    "share",
-    "price",
-}
-
-
 def _plan_research_queries(query: str) -> list[str]:
     cleaned = _normalize_query(query)
-    if not _should_expand_stock_query(cleaned):
-        return [cleaned]
-
-    subject = _extract_company_subject(cleaned)
-    year = str(datetime.now().year)
-    month_year = datetime.now().strftime("%B %Y")
-    return [
-        f"{subject} latest news {month_year}",
-        f"{subject} earnings guidance analyst reaction {year}",
-        f"{subject} layoffs lawsuit acquisition product launch {year}",
-    ]
+    return [cleaned]
 
 
-def _should_expand_stock_query(query: str) -> bool:
-    lowered = query.lower()
-    tokens = set(re.findall(r"[a-z0-9-]+", lowered))
-    if not tokens:
-        return False
-    generic_hits = tokens.intersection(_GENERIC_STOCK_QUERY_MARKERS)
-    if not generic_hits:
-        return False
-    if "stock analysis" in lowered or "financial performance" in lowered or "recent information" in lowered:
-        return True
-    focused_hits = tokens.intersection(_FOCUSED_COMPANY_NEWS_HINTS) - {"news"}
-    return len(focused_hits) <= 1
+_SOURCE_HINTS = {
+    "bloomberg",
+    "cnbc",
+    "cnn",
+    "coindesk",
+    "reuters",
+    "wsj",
+}
+
+_NEWS_QUERY_NOISE = {
+    "analysis",
+    "company",
+    "current",
+    "earnings",
+    "financial",
+    "latest",
+    "market",
+    "news",
+    "overview",
+    "outlook",
+    "performance",
+    "price",
+    "recent",
+    "stock",
+    "stocks",
+}
 
 
-def _extract_company_subject(query: str) -> str:
-    tokens = re.findall(r"[A-Za-z0-9&.-]+", query)
+def _normalize_news_query(query: str) -> str:
+    cleaned = _normalize_query(query)
+    lowered = cleaned.lower()
+    if any(source in lowered for source in _SOURCE_HINTS):
+        return cleaned
+
+    duplicate_latest_news = lowered.count("latest news") > 1
+    tokens = re.findall(r"[A-Za-z0-9&.-]+", cleaned)
+    has_noise = duplicate_latest_news or any(token.lower() in _NEWS_QUERY_NOISE for token in tokens)
+    has_year = any(re.fullmatch(r"20\d{2}", token) for token in tokens)
+    if not (has_noise or has_year):
+        return cleaned
+
     subject_tokens: list[str] = []
     for token in tokens:
-        if token.lower() in _GENERIC_STOCK_QUERY_MARKERS:
+        lowered_token = token.lower()
+        if re.fullmatch(r"20\d{2}", token):
             break
+        if lowered_token in _NEWS_QUERY_NOISE:
+            break
+        if subject_tokens and re.fullmatch(r"[A-Z]{1,6}(?:-[A-Z]{1,4})?", token):
+            continue
         subject_tokens.append(token)
-    if not subject_tokens:
-        subject_tokens = tokens[:3]
-    return " ".join(subject_tokens).strip() or query.strip()
+        if len(subject_tokens) >= 4:
+            break
+    subject = " ".join(subject_tokens).strip()
+    if not subject:
+        return cleaned
+    return f"{subject} latest news"
 
 
 def _normalize_query(query: str) -> str:

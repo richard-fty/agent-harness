@@ -214,7 +214,7 @@ async def run_single(
     strategy: str,
     timeout: int = 300,
     use_mock: bool = False,
-) -> dict[str, Any]:
+) -> tuple[Trace, dict[str, Any] | None]:
     """Run a single model x test_case x strategy combination.
     
     Supports LT1 tier: kill at midpoint and wake() for continuation.
@@ -245,17 +245,19 @@ async def run_single(
         context_strategy=strategy,
         runtime_config=runtime,
     )
+    trace.scenario = scenario.name
 
-    # Evaluate
-    score = scenario.evaluate(trace, test_case)
-    score["model"] = model
-    score["context_strategy"] = strategy
-    score["scenario"] = scenario.name
+    score: dict[str, Any] | None = None
+    if not scenario.is_app_artifact():
+        score = scenario.evaluate(trace, test_case)
+        score["model"] = model
+        score["context_strategy"] = strategy
+        score["scenario"] = scenario.name
 
     # Save trace
     trace.save("results")
 
-    return score
+    return trace, score
 
 
 async def _run_mock(
@@ -264,7 +266,7 @@ async def _run_mock(
     test_case: dict[str, Any],
     strategy: str,
     runtime: RuntimeConfig,
-) -> dict[str, Any]:
+) -> tuple[Trace, dict[str, Any] | None]:
     """Run a test case with mock LLM and mock tool responses (no API calls)."""
     from agent.session.archive import SessionArchive
     from agent.session.engine import SessionEngine
@@ -310,17 +312,18 @@ async def _run_mock(
         callback=lambda e: None,
     )
     
-    # Evaluate
-    score = scenario.evaluate(trace, test_case)
-    score["model"] = model
-    score["context_strategy"] = strategy
-    score["scenario"] = scenario.name
-    score["mock_mode"] = True
+    score: dict[str, Any] | None = None
+    if not scenario.is_app_artifact():
+        score = scenario.evaluate(trace, test_case)
+        score["model"] = model
+        score["context_strategy"] = strategy
+        score["scenario"] = scenario.name
+        score["mock_mode"] = True
     
     # Save trace
     trace.save("results")
     
-    return score
+    return trace, score
 
 
 async def _run_lt1(
@@ -330,7 +333,7 @@ async def _run_lt1(
     strategy: str,
     runtime: RuntimeConfig,
     use_mock: bool = False,
-) -> dict[str, Any]:
+) -> tuple[Trace, dict[str, Any] | None]:
     """LT1 tier: checkpoint at midpoint, wake(), continue without duplicate work."""
     from agent.runtime.orchestrator import SessionOrchestrator
     from agent.runtime.guards import RuntimeGuard
@@ -421,15 +424,17 @@ async def _run_lt1(
             duplicates.append(signature[0])
         unique_tools.add(signature)
 
-    score = scenario.evaluate(trace, test_case)
-    score["model"] = model
-    score["context_strategy"] = strategy
-    score["scenario"] = scenario.name
-    score["lt1_checkpoint_step"] = kill_after_tools
-    score["lt1_tool_calls_before_wake"] = len(tool_calls_before)
-    score["lt1_tool_calls_total"] = len(tool_calls_after)
-    score["lt1_duplicate_calls"] = len(duplicates)
-    score["lt1_success"] = len(duplicates) == 0 and rt2.session.state.value == "completed"
+    score: dict[str, Any] | None = None
+    if not scenario.is_app_artifact():
+        score = scenario.evaluate(trace, test_case)
+        score["model"] = model
+        score["context_strategy"] = strategy
+        score["scenario"] = scenario.name
+        score["lt1_checkpoint_step"] = kill_after_tools
+        score["lt1_tool_calls_before_wake"] = len(tool_calls_before)
+        score["lt1_tool_calls_total"] = len(tool_calls_after)
+        score["lt1_duplicate_calls"] = len(duplicates)
+        score["lt1_success"] = len(duplicates) == 0 and rt2.session.state.value == "completed"
 
     if duplicates:
         console.print(f"  [bold red]LT1 FAILED: Duplicate tool calls: {duplicates}[/bold red]")
@@ -437,7 +442,7 @@ async def _run_lt1(
         console.print(f"  [dim]LT1: Success - {len(tool_calls_after)} total tool calls, no duplicates[/dim]")
 
     trace.save("results")
-    return score
+    return trace, score
 
 
 async def run_benchmark(
@@ -476,7 +481,9 @@ async def run_benchmark(
 
                 start = time.time()
                 try:
-                    score = await run_single(scenario, model, case, strategy, timeout, use_mock=use_mock)
+                    _, score = await run_single(scenario, model, case, strategy, timeout, use_mock=use_mock)
+                    if score is None:
+                        raise RuntimeError(f"Scenario {scenario.name} did not produce an inline score")
                     elapsed = time.time() - start
 
                     # Print quick result
@@ -505,7 +512,7 @@ async def run_benchmark(
     return results
 
 
-async def run_coding_benchmark(
+async def run_app_artifact_benchmark(
     scenario: Any,
     test_cases: list[dict[str, Any]],
     *,
@@ -517,6 +524,7 @@ async def run_coding_benchmark(
     output_dir: str,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
+    scenario_dir = Path(__file__).resolve().parents[1] / "scenarios" / scenario.name
     out_root = Path(output_dir).resolve()
     sandbox_root = out_root / "sandbox"
     trace_root = out_root / "traces"
@@ -531,11 +539,11 @@ async def run_coding_benchmark(
 
     for case in selected:
         case_id = case["id"]
-        console.print(f"\n[bold]Coding case:[/bold] {case_id}")
+        console.print(f"\n[bold]App artifact case:[/bold] {scenario.name}/{case_id}")
         start = time.time()
-        workspace = _prepare_coding_workspace(case, sandbox_root)
+        workspace = _prepare_app_artifact_workspace(case, scenario_dir, sandbox_root)
         trace = Trace(
-            run_id=f"coding_{case_id}_{int(start)}",
+            run_id=f"{scenario.name}_{case_id}_{int(start)}",
             model=model,
             scenario=scenario.name,
             prompt=case["input"],
@@ -543,12 +551,12 @@ async def run_coding_benchmark(
         )
         try:
             if replay or use_mock:
-                _apply_patch_file(workspace, _case_path(case, case["golden_patch"]))
+                _apply_patch_file(workspace, _case_path(scenario_dir, case["golden_patch"]))
             else:
                 old_cwd = Path.cwd()
                 try:
                     os.chdir(workspace)
-                    await run_single(
+                    trace, _ = await run_single(
                         scenario,
                         model,
                         case,
@@ -559,8 +567,18 @@ async def run_coding_benchmark(
                 finally:
                     os.chdir(old_cwd)
 
-            trace.gate_results = await _run_coding_gates(case, workspace, timeout=timeout)
-            trace.artifacts.extend(_capture_coding_artifacts(case, workspace, out_root))
+            trace.gate_results = await _run_app_artifact_gates(
+                case,
+                scenario_dir,
+                workspace,
+                timeout=timeout,
+            )
+            trace.artifacts.extend(
+                _capture_app_artifact_outputs(case, scenario_dir, workspace, out_root)
+            )
+            preview_url = _resolve_preview_url(trace)
+            if preview_url:
+                trace.artifacts.append({"kind": "app_preview", "url": preview_url})
             trace.finish(output="coding gates completed")
             score = scenario.evaluate(trace, case)
             score["model"] = model
@@ -589,21 +607,28 @@ async def run_coding_benchmark(
             trace.save(str(trace_root))
 
     csv_path = _write_coding_csv(results, out_root)
-    console.print(f"[dim]Coding CSV saved to {csv_path}[/dim]")
+    console.print(f"[dim]App artifact CSV saved to {csv_path}[/dim]")
     return results
 
 
-def _prepare_coding_workspace(case: dict[str, Any], sandbox_root: Path) -> Path:
-    scenario_dir = Path(__file__).resolve().parents[1] / "scenarios" / "coding"
+def _prepare_app_artifact_workspace(case: dict[str, Any], scenario_dir: Path, sandbox_root: Path) -> Path:
     template = scenario_dir / "templates" / case["template"]
     workspace = sandbox_root / case["id"]
     if workspace.exists():
         shutil.rmtree(workspace)
     shutil.copytree(template, workspace)
+    case_src = _case_path(scenario_dir, case["golden_patch"]).parents[1]
+    public_src = case_src / "public"
+    if public_src.exists():
+        shutil.copytree(public_src, workspace, dirs_exist_ok=True)
     cases_dst = workspace / "cases"
     cases_dst.mkdir(parents=True, exist_ok=True)
-    case_src = _case_path(case, case["golden_patch"]).parents[1]
-    shutil.copytree(case_src, cases_dst / case_src.name, dirs_exist_ok=True)
+    shutil.copytree(
+        case_src,
+        cases_dst / case_src.name,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("hidden"),
+    )
     _git(workspace, "init")
     _git(workspace, "config", "user.email", "apex@example.invalid")
     _git(workspace, "config", "user.name", "Apex Eval")
@@ -612,8 +637,7 @@ def _prepare_coding_workspace(case: dict[str, Any], sandbox_root: Path) -> Path:
     return workspace
 
 
-def _case_path(case: dict[str, Any], rel: str) -> Path:
-    scenario_dir = Path(__file__).resolve().parents[1] / "scenarios" / "coding"
+def _case_path(scenario_dir: Path, rel: str) -> Path:
     return scenario_dir / rel
 
 
@@ -628,38 +652,68 @@ def _apply_patch_file(workspace: Path, patch_path: Path) -> None:
         raise RuntimeError(result.stderr or result.stdout or f"git apply failed: {patch_path}")
 
 
-async def _run_coding_gates(
+async def _run_app_artifact_gates(
     case: dict[str, Any],
+    scenario_dir: Path,
     workspace: Path,
     *,
     timeout: int,
 ) -> dict[str, bool]:
     manifest = case["manifest"]
     sandbox = _make_gate_sandbox(workspace)
+    log_dir = workspace / ".gate_logs"
+    log_dir.mkdir(exist_ok=True)
     results: dict[str, bool] = {}
+    case_root = _case_path(scenario_dir, case["golden_patch"]).parents[1]
+    hidden_src = case_root / "hidden"
+    hidden_dst = workspace / "cases" / case_root.name / "hidden"
     for stage in ("install", "build", "test"):
-        cmd = _stage_command(manifest[stage], case)
-        network = "bridge" if stage == "install" else "none"
-        result = await sandbox.run_oneshot(cmd, timeout=timeout, network=network)
-        (workspace / f"{stage}.log").write_text(
-            (result.stdout or "") + ("\n[stderr]\n" + result.stderr if result.stderr else ""),
-            encoding="utf-8",
-        )
-        results[stage] = result.exit_code == 0 and not result.timed_out
-        if not results[stage]:
-            break
+        cmd_parts = manifest.get(stage)
+        if not cmd_parts:
+            results[stage] = True
+            continue
+        injected = False
+        if stage == "test" and hidden_src.exists():
+            shutil.copytree(hidden_src, hidden_dst, dirs_exist_ok=True)
+            injected = True
+        try:
+            cmd = _stage_command(cmd_parts, case)
+            network = "bridge" if stage == "install" else "none"
+            result = await sandbox.run_oneshot(cmd, timeout=timeout, network=network)
+            (log_dir / f"{stage}.stdout").write_text(result.stdout or "", encoding="utf-8")
+            (log_dir / f"{stage}.stderr").write_text(result.stderr or "", encoding="utf-8")
+            results[stage] = result.exit_code == 0 and not result.timed_out
+            if not results[stage]:
+                break
+        finally:
+            if injected and hidden_dst.exists():
+                shutil.rmtree(hidden_dst, ignore_errors=True)
     return results
 
 
 def _make_gate_sandbox(workspace: Path):
+    gate_sandbox = os.environ.get("APEX_GATE_SANDBOX", "").strip().lower()
+    if gate_sandbox in {"local", "host"}:
+        return _make_local_gate_sandbox(workspace)
+    if gate_sandbox in {"docker", "container"} and not _docker_daemon_available():
+        raise RuntimeError("APEX_GATE_SANDBOX=docker was requested, but Docker is not available")
     if _docker_daemon_available():
-        image = os.environ.get("APEX_SANDBOX_IMAGE", "node:22-alpine")
+        image = os.environ.get("APEX_SANDBOX_IMAGE", "apex-sandbox:latest")
+        pnpm_store = workspace.parent.parent / ".pnpm-store"
+        pnpm_store.mkdir(parents=True, exist_ok=True)
         return DockerSandbox(
             image=image,
             work_dir="/workspace",
             network="none",
-            mounts=[SandboxMount(source=str(workspace), target="/workspace", read_only=False)],
+            mounts=[
+                SandboxMount(source=str(workspace), target="/workspace", read_only=False),
+                SandboxMount(source=str(pnpm_store), target="/pnpm-store", read_only=False),
+            ],
         )
+    return _make_local_gate_sandbox(workspace)
+
+
+def _make_local_gate_sandbox(workspace: Path) -> LocalSandbox:
     return LocalSandbox(
         workspace_root=str(workspace),
         env_allowlist={
@@ -687,11 +741,82 @@ def _stage_command(parts: list[str], case: dict[str, Any]) -> str:
     return shlex.join(parts)
 
 
-def _capture_coding_artifacts(case: dict[str, Any], workspace: Path, out_root: Path) -> list[dict[str, Any]]:
+def _capture_app_artifact_outputs(
+    case: dict[str, Any],
+    scenario_dir: Path,
+    workspace: Path,
+    out_root: Path,
+) -> list[dict[str, Any]]:
+    del scenario_dir
+    out_dir = out_root / "artifacts" / case["id"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    captured: list[dict[str, Any]] = []
     patch = subprocess.run(["git", "diff"], cwd=workspace, capture_output=True, text=True).stdout
-    patch_path = out_root / f"{case['id']}_patch.diff"
+    patch_path = out_dir / "patch.diff"
     patch_path.write_text(patch, encoding="utf-8")
-    return [{"kind": "code", "language": "diff", "path": str(patch_path)}]
+    captured.append({"kind": "code", "language": "diff", "path": str(patch_path)})
+
+    for stage in ("install", "build", "test"):
+        for stream in ("stdout", "stderr"):
+            log = workspace / f".gate_logs/{stage}.{stream}"
+            if log.exists():
+                dst = out_dir / f"{stage}.{stream}.log"
+                shutil.copy2(log, dst)
+                captured.append({
+                    "kind": "log",
+                    "stage": stage,
+                    "stream": stream,
+                    "path": str(dst),
+                })
+
+    test_stdout = workspace / ".gate_logs" / "test.stdout"
+    if test_stdout.exists():
+        json_blob = _extract_playwright_json(
+            test_stdout.read_text(encoding="utf-8", errors="replace")
+        )
+        if json_blob is not None:
+            dst = out_dir / "playwright.json"
+            dst.write_text(json_blob, encoding="utf-8")
+            captured.append({"kind": "test_report", "format": "playwright_json", "path": str(dst)})
+
+    screenshots = workspace / "test-results"
+    if screenshots.exists():
+        for png in screenshots.rglob("*.png"):
+            dst = out_dir / "screenshots" / png.name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(png, dst)
+            captured.append({"kind": "screenshot", "path": str(dst)})
+
+    return captured
+
+
+def _extract_playwright_json(text: str) -> str | None:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            _, end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        return text[index:index + end]
+    return None
+
+
+def _resolve_preview_url(trace: Trace) -> str | None:
+    preview_id: str | None = None
+    for event in trace.artifact_events:
+        data = event.get("data", {})
+        if event.get("event_type") == "artifact_created" and data.get("kind") == "app_preview":
+            preview_id = data.get("artifact_id")
+        elif (
+            event.get("event_type") == "artifact_patch"
+            and preview_id is not None
+            and data.get("artifact_id") == preview_id
+            and data.get("op") == "replace"
+        ):
+            return data.get("content")
+    return None
 
 
 def _write_coding_csv(results: list[dict[str, Any]], out_root: Path) -> Path:
@@ -815,10 +940,10 @@ async def main() -> None:
         console.print("[bold red]No test cases found.[/bold red]")
         return
 
-    if args.scenario == "coding":
+    if scenario.is_app_artifact():
         if len(models) > 1 or len(strategies) > 1:
-            console.print("[yellow]Coding MVP uses the first model and strategy only.[/yellow]")
-        results = await run_coding_benchmark(
+            console.print("[yellow]App-artifact runner uses the first model and strategy only.[/yellow]")
+        results = await run_app_artifact_benchmark(
             scenario,
             test_cases,
             model=models[0],
