@@ -1,4 +1,4 @@
-"""Built-in filesystem tools: read, write, edit, list directory."""
+"""Built-in filesystem tools: read, write, append, edit, list directory."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from agent.runtime.tool_context import (
     emit_artifact_replace,
 )
 from tools.base import BuiltinTool
+
+_WRITE_FILE_MAX_CHARS = int(os.environ.get("APEX_WRITE_FILE_MAX_CHARS", "12000"))
 
 
 # Map common file extensions to (ArtifactKind, language hint for code).
@@ -101,7 +103,10 @@ class ReadFileTool(BuiltinTool):
 
 class WriteFileTool(BuiltinTool):
     name = "write_file"
-    description = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does."
+    description = (
+        "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. "
+        f"For content over {_WRITE_FILE_MAX_CHARS} chars, use append_file in chunks instead."
+    )
     requires_confirmation = True
     path_access = "write"
     parameters = [
@@ -120,6 +125,14 @@ class WriteFileTool(BuiltinTool):
         path = kwargs["path"]
         content = kwargs["content"]
         emit_artifact = kwargs.get("emit_artifact", True)
+
+        if len(content) > _WRITE_FILE_MAX_CHARS:
+            return (
+                f"Error: content is {len(content)} chars, above write_file's "
+                f"{_WRITE_FILE_MAX_CHARS} char limit. Split the file into smaller "
+                "files or call append_file(path, content, reset=true) for the first "
+                "chunk and append_file(path, content) for subsequent chunks."
+            )
 
         p = Path(path).resolve()
         get_default_sandbox().write_file(str(p), content, encoding="utf-8")
@@ -140,6 +153,65 @@ class WriteFileTool(BuiltinTool):
                 await emit_artifact_finalized(artifact_id)
 
         return f"Written {len(content)} chars to {path}"
+
+
+class AppendFileTool(BuiltinTool):
+    name = "append_file"
+    description = (
+        "Append a chunk of text to a file. Use reset=true for the first chunk "
+        "when writing a large file, then append subsequent chunks."
+    )
+    requires_confirmation = True
+    path_access = "write"
+    parameters = [
+        ToolParameter(name="path", type="string", description="Path to the file to append to"),
+        ToolParameter(name="content", type="string", description="Text chunk to append"),
+        ToolParameter(
+            name="reset",
+            type="boolean",
+            description="If true, overwrite the file with this chunk before later appends",
+            required=False,
+            default=False,
+        ),
+        ToolParameter(
+            name="emit_artifact",
+            type="boolean",
+            description="Whether to surface the full current file as an artifact card (default: false)",
+            required=False,
+            default=False,
+        ),
+    ]
+
+    async def execute(self, **kwargs: Any) -> str:
+        path = kwargs["path"]
+        content = kwargs["content"]
+        reset = kwargs.get("reset", False)
+        emit_artifact = kwargs.get("emit_artifact", False)
+
+        p = Path(path).resolve()
+        if reset or not p.exists():
+            new_text = content
+        else:
+            existing = get_default_sandbox().read_file(str(p), encoding="utf-8")
+            new_text = existing + content
+        get_default_sandbox().write_file(str(p), new_text, encoding="utf-8")
+
+        if emit_artifact:
+            kind, language = _artifact_for_path(path)
+            artifact_id = await emit_artifact_created(
+                spec=ArtifactSpec(
+                    kind=kind,
+                    name=Path(path).name,
+                    language=language,
+                    description=f"Appended to {path}",
+                )
+            )
+            if artifact_id:
+                await emit_artifact_replace(artifact_id, new_text)
+                await emit_artifact_finalized(artifact_id)
+
+        action = "Reset and wrote" if reset else "Appended"
+        return f"{action} {len(content)} chars to {path}; file is now {len(new_text)} chars"
 
 
 class EditFileTool(BuiltinTool):

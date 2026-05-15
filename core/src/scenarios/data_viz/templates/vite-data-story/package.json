@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.33.3",
   "type": "module",
   "scripts": {
+    "analyze:csv": "node scripts/analyze_csv.mjs",
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs && node scripts/serve.mjs",
     "serve": "node scripts/serve.mjs",

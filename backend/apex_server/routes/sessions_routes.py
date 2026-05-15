@@ -78,8 +78,12 @@ async def delete_session(
 ) -> Response:
     await owned_session(session_id, user, state)
     await state.session_store.delete(session_id)
-    # Release any runtime in memory for this session.
-    state.runners.pop(session_id, None)
-    state.runtimes.pop(session_id, None)
+    # Release any runtime in memory for this session, including its sandbox.
+    runner = state.runners.pop(session_id, None)
+    runtime = state.runtimes.pop(session_id, None)
+    if runner is not None:
+        await runner.close()
+    elif runtime is not None:
+        await runtime.close()
     await state.event_bus.close_session(session_id)
     return Response(status_code=204)

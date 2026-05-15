@@ -166,7 +166,8 @@ async def start_app_preview(
 ) -> str:
     sandbox = get_default_sandbox()
     workspace = Path(getattr(sandbox, "workspace_root", Path.cwd())).resolve()
-    app_dir = (workspace / cwd).resolve()
+    requested_cwd = Path(cwd).expanduser()
+    app_dir = requested_cwd.resolve() if requested_cwd.is_absolute() else (workspace / requested_cwd).resolve()
     if not _is_relative_to(app_dir, workspace):
         return f"Error: preview cwd must stay inside workspace: {cwd}"
     if not app_dir.exists() or not app_dir.is_dir():

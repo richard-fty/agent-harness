@@ -200,7 +200,7 @@ function ArtifactBody({
           <iframe
             title={artifact.name}
             src={previewUrl}
-            sandbox="allow-scripts allow-forms"
+            sandbox="allow-scripts allow-forms allow-same-origin"
             className="h-full w-full border-0"
           />
         </div>

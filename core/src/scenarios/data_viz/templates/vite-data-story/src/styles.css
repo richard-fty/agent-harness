@@ -30,3 +30,43 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
+.starter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.starter-grid div {
+  min-width: 0;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
+.starter-grid dt {
+  margin-bottom: 6px;
+  color: #637892;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.starter-grid dd {
+  margin: 0;
+  color: #172033;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .story-shell {
+    padding: 20px;
+  }
+
+  .starter-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -9,6 +9,7 @@ A subscription ends when the runtime emits `StreamEnd`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
@@ -261,6 +262,15 @@ class SharedTurnRunner:
 
     def resume_pending_background(self, action: str) -> None:
         self._active_task = asyncio.create_task(self._resume_turn_task(action))
+
+    async def close(self) -> None:
+        """Stop any active turn and release the session sandbox."""
+        if self._active_task is not None and not self._active_task.done():
+            self._active_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._active_task
+        self._active_task = None
+        await self.runtime.close()
 
     # ---- foreground stream API (TUI/CLI) ---------------------------------
 

@@ -1,5 +1,15 @@
 import { useStore } from "../../store";
-import { FileText, Code2, FileJson, FileBarChart, Terminal, File, Image as ImageIcon, FileType2 } from "lucide-react";
+import {
+  FileText,
+  Code2,
+  FileJson,
+  FileBarChart,
+  Terminal,
+  File,
+  Image as ImageIcon,
+  FileType2,
+  MonitorPlay,
+} from "lucide-react";
 import type { ArtifactKind } from "../../types";
 
 function iconFor(kind: ArtifactKind) {
@@ -14,6 +24,7 @@ function iconFor(kind: ArtifactKind) {
     case "pdf":      return <FileType2 className="h-5 w-5" />;
     case "terminal_log": return <Terminal className="h-5 w-5" />;
     case "plan":     return <FileBarChart className="h-5 w-5" />;
+    case "app_preview": return <MonitorPlay className="h-5 w-5" />;
     default:         return <File className="h-5 w-5" />;
   }
 }
@@ -42,6 +53,7 @@ export function ArtifactCard({
 }) {
   const artifact = useStore((s) => s.sessions[sessionId]?.artifacts[artifactId]);
   const openArtifact = useStore((s) => s.openArtifact);
+  const setArtifactView = useStore((s) => s.setArtifactView);
   const active = useStore(
     (s) => s.ui.panel.kind === "artifact" && s.ui.panel.artifactId === artifactId,
   );
@@ -49,11 +61,20 @@ export function ArtifactCard({
   if (!artifact) return null;
 
   const size = artifact.size ?? new Blob([artifact.content]).size;
-  const subtitle = artifact.description || firstLine(artifact.content);
+  const isAppPreview = artifact.kind === "app_preview";
+  const subtitle = isAppPreview
+    ? artifact.description || "Live browser preview"
+    : artifact.description || firstLine(artifact.content);
+  const meta = isAppPreview
+    ? "app preview"
+    : `${artifact.kind} · ${humanSize(size)}${artifact.language ? ` · ${artifact.language}` : ""}`;
 
   return (
     <button
-      onClick={() => openArtifact(artifactId)}
+      onClick={() => {
+        if (isAppPreview) setArtifactView("preview");
+        openArtifact(artifactId);
+      }}
       className={`w-full text-left rounded-xl border transition-colors
         ${active ? "border-primary/50 bg-secondary/70" : "border-border bg-secondary/30 hover:bg-secondary/60"}
         p-4 flex gap-3`}
@@ -67,13 +88,17 @@ export function ArtifactCard({
           {!artifact.finalized && (
             <span className="text-xs text-muted-foreground animate-pulse">streaming…</span>
           )}
+          {isAppPreview && artifact.finalized && (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+              Browser
+            </span>
+          )}
         </div>
         {subtitle && (
           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{subtitle}</p>
         )}
         <div className="text-xs text-muted-foreground mt-1">
-          {artifact.kind} · {humanSize(size)}
-          {artifact.language && ` · ${artifact.language}`}
+          {meta}
         </div>
       </div>
     </button>

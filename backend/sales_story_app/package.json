@@ -1,0 +1,13 @@
+{
+  "name": "sales-storyboard",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port {port}",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

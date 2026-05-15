@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>2025 Sales Storyboard</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#f8f9fc;--surface:#fff;--text:#1a1a2e;--text-muted:#6b7280;--accent:#4361ee;--accent-light:#eef1ff;--border:#e2e5ec;--radius:12px;--shadow:0 2px 8px rgba(0,0,0,0.06);--font:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif}
+body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:1.6}
+#app{max-width:1100px;margin:0 auto;padding:24px 20px 60px}
+#header{text-align:center;padding:40px 0 32px}
+#header h1{font-size:2rem;font-weight:700;letter-spacing:-0.02em}
+#header .subtitle{margin-top:8px;color:var(--text-muted);font-size:1rem;max-width:600px;margin-left:auto;margin-right:auto}
+#kpi-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:32px}
+.kpi-card{background:var(--surface);border-radius:var(--radius);padding:20px 16px;box-shadow:var(--shadow);border:1px solid var(--border);text-align:center}
+.kpi-label{display:block;font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:6px}
+.kpi-value{display:block;font-size:1.6rem;font-weight:700;color:var(--accent)}
+.kpi-sub{display:block;font-size:.8rem;color:var(--text-muted);margin-top:4px}
+.story-panel{background:var(--surface);border-radius:var(--radius);padding:28px 24px;margin-bottom:24px;box-shadow:var(--shadow);border:1px solid var(--border)}
+.story-panel h2{font-size:1.2rem;font-weight:600;margin-bottom:8px}
+.story-panel p,.chart-caption{color:var(--text-muted);font-size:.9rem;margin-bottom:16px}
+.chart-container{width:100%}
+.chart-container svg{width:100%;height:auto;display:block}
+.split-charts{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.chart-half h3{font-size:.9rem;font-weight:600;margin-bottom:8px;color:var(--text-muted)}
+.chart-half svg{width:100%;height:auto;display:block}
+.filter-row{display:flex;gap:24px;flex-wrap:wrap;margin-top:12px}
+.filter-group{display:flex;flex-direction:column;gap:4px}
+.filter-group label{font-size:.8rem;font-weight:600;color:var(--text-muted)}
+.filter-group select{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:.9rem;background:var(--surface);color:var(--text);cursor:pointer;min-width:160px}
+.filter-group select:focus{outline:2px solid var(--accent);outline-offset:2px}
+#data-notes ul{list-style:none;margin-top:12px}
+#data-notes li{padding:6px 0;font-size:.9rem;color:var(--text-muted);border-bottom:1px solid var(--border)}
+#data-notes li:last-child{border-bottom:none}
+.table-wrapper{overflow-x:auto;margin-top:12px;max-height:400px;overflow-y:auto}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{background:var(--accent-light);text-align:left;padding:10px 12px;font-weight:600;position:sticky;top:0;z-index:1}
+td{padding:8px 12px;border-bottom:1px solid var(--border)}
+tr:hover td{background:#f3f4ff}
+.tooltip{position:absolute;background:#1a1a2e;color:#fff;padding:8px 12px;border-radius:8px;font-size:.8rem;pointer-events:none;opacity:0;transition:opacity .15s;z-index:100}
+@media(max-width:768px){#header h1{font-size:1.4rem}#kpi-strip{grid-template-columns:repeat(2,1fr)}.split-charts{grid-template-columns:1fr}.filter-row{flex-direction:column}}
+</style>
+</head>
+<body>
+<div id="app">
+<header id="header">
+<h1>2025 Global Sales Storyboard</h1>
+<p class="subtitle">A year in review — revenue, margins, and growth drivers across 4 regions and 5 product lines</p>
+</header>
+<section id="kpi-strip">
+<div class="kpi-card" data-testid="kpi-total-revenue" data-value="4311320.46"><span class="kpi-label">Total Revenue</span><span class="kpi-value">$4.31M</span></div>
+<div class="kpi-card" data-testid="kpi-total-units" data-value="6249"><span class="kpi-label">Units Sold</span><span class="kpi-value">6,249</span></div>
+<div class="kpi-card" data-testid="kpi-best-category" data-value="Platform"><span class="kpi-label">Top Category</span><span class="kpi-value">Platform</span><span class="kpi-sub">$1.56M (36.3%)</span></div>
+<div class="kpi-card" data-testid="kpi-best-region" data-value="North America"><span class="kpi-label">Top Region</span><span class="kpi-value">North America</span><span class="kpi-sub">$1.66M (38.4%)</span></div>
+<div class="kpi-card" data-testid="kpi-highest-margin" data-value="0.735"><span class="kpi-label">Highest Margin</span><span class="kpi-value">Subscriptions</span><span class="kpi-sub">73.5% avg gross margin</span></div>
+</section>
+<section id="headline" class="story-panel">
+<h2>📈 Revenue surged 58% from February to December — Subscriptions lead profitability</h2>
+<p>The 2025 sales year started slow with a February low of <strong>$273K</strong>, then built momentum through a steady climb, peaking in December at <strong>$455K</strong> (+67% from Feb). <strong>Subscriptions</strong> stand out as the star — the highest-margin category at <strong>73.5%</strong>, while <strong>Platform</strong> is the revenue leader at <strong>$1.56M (36.3%)</strong>. <strong>North America</strong> dominates at 38.4% of total revenue, but <strong>LATAM</strong> shows strong subscription margin performance.</p>
+</section>
+<section id="monthly-trend" class="story-panel">
+<h2>📊 Monthly Revenue Trend</h2>
+<p class="chart-caption">Steady growth through 2025 with a mid-year dip in August and a strong Q4 finish.</p>
+<div class="chart-container"><svg id="monthly-revenue-chart" data-testid="monthly-revenue-chart" viewBox="0 0 900 400"></svg></div>
+</section>
+<section id="region-breakdown" class="story-panel">
+<h2>🌍 Revenue by Region</h2>
+<p class="chart-caption">North America leads; LATAM is smallest but growing.</p>
+<div class="split-charts">
+<div class="chart-half"><svg id="region-donut" data-testid="region-donut" viewBox="0 0 400 400"></svg></div>
+<div class="chart-half"><h3>Monthly Trend by Region</h3><svg id="region-trend-chart" viewBox="0 0 500 350"></svg></div>
+</div>
+</section>
+<section id="category-breakdown" class="story-panel">
+<h2>📦 Revenue &amp; Margin by Category</h2>
+<p class="chart-caption">Platform generates the most revenue; Subscriptions deliver the highest margins.</p>
+<div class="split-charts">
+<div class="chart-half"><h3>Revenue</h3><svg id="category-bar" viewBox="0 0 500 350"></svg></div>
+<div class="chart-half"><h3>Gross Margin</h3><svg id="margin-bar" viewBox="0 0 500 350"></svg></div>
+</div>
+</section>
+<section id="region-category-heatmap" class="story-panel">
+<h2>🔥 Region × Category Revenue</h2>
+<p class="chart-caption">Platform dominates everywhere except LATAM, where Subscriptions are #1.</p>
+<div class="chart-container"><svg id="heatmap-chart" viewBox="0 0 700 400"></svg></div>
+</section>
+<section id="filters" class="story-panel">
+<h2>🔍 Explore the Data</h2>
+<div class="filter-row">
+<div class="filter-group"><label for="region-filter">Region</label><select id="region-filter"><option value="all">All Regions</option><option value="North America">North America</option><option value="EMEA">EMEA</option><option value="APAC">APAC</option><option value="LATAM">LATAM</option></select></div>
+<div class="filter-group"><label for="category-filter">Category</label><select id="category-filter"><option value="all">All Categories</option><option value="Platform">Platform</option><option value="Subscriptions">Subscriptions</option><option value="Hardware">Hardware</option><option value="Services">Services</option><option value="Training">Training</option></select></div>
+</div>
+</section>
+<section id="data-notes" class="story-panel">
+<h2>📝 Data Notes</h2>
+<ul>
+<li><strong>Source:</strong> 2025 monthly sales data across 4 regions and 5 product categories (240 records).</li>
+<li><strong>Metrics:</strong> Revenue ($), Units Sold, Gross Margin (%) are the core dimensions.</li>
+<li><strong>Period:</strong> January — December 2025, monthly snapshots.</li>
+<li><strong>Gross Margin:</strong> (Revenue - COGS) / Revenue. Hardware has thin margins (~28%); Subscriptions lead (~74%).</li>
+<li><strong>Category definitions:</strong> Platform = SaaS fees; Subscriptions = recurring; Services = professional services; Hardware = physical products; Training = customer education.</li>
+</ul>
+</section>
+<section id="details-table" class="story-panel">
+<h2>📋 Full Data Table</h2>
+<div class="table-wrapper"><table><thead><tr><th>Date</th><th>Region</th><th>Category</th><th>Units</th><th>Revenue</th><th>Gross Margin</th></tr></thead><tbody id="table-body"></tbody></table></div>
+</section>
+</div>
+<script>

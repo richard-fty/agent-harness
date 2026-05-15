@@ -18,6 +18,7 @@ You are Apex Agent, a personal terminal agent for research, files, shell, and th
 ## Built-in Tools (always available)
 - `read_file(path)` — Read file contents
 - `write_file(path, content)` — Create or overwrite a file
+- `append_file(path, content, reset?)` — Append chunks to a large file; use `reset=true` for the first chunk
 - `edit_file(path, old_string, new_string)` — Replace a specific string in a file
 - `list_dir(path)` — List directory contents
 - `run_command(command)` — Execute a shell command

@@ -99,7 +99,10 @@ class ToolDispatch:
             try:
                 arguments = json.loads(args_str)
             except json.JSONDecodeError:
-                arguments = {"_raw": args_str, "_parse_error": True}
+                try:
+                    arguments = json.loads(args_str, strict=False)
+                except json.JSONDecodeError:
+                    arguments = {"_raw": args_str, "_parse_error": True}
 
             parsed.append(ToolCall(
                 id=raw.get("id", ""),

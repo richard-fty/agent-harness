@@ -21,11 +21,15 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Awaitable, Callable
+from pathlib import Path
 
 import pytest
 
 from agent.core.models import ToolDef, ToolGroup, ToolLoadingStrategy
 from agent.runtime.tool_dispatch import ToolDispatch
+from agent.runtime.sandbox import LocalSandbox, sandbox_context
+from skill_packs.coding import tools as coding_tools
+from skill_packs.coding.tools import start_app_preview
 
 
 # ── Backends under test ───────────────────────────────────────────────────
@@ -180,3 +184,93 @@ def test_arg_validation_error_is_str_not_exception() -> None:
 
     assert isinstance(result, str)
     assert "q" in result.lower() or "missing" in result.lower()
+
+
+def test_parse_tool_calls_accepts_multiline_string_arguments() -> None:
+    """Model providers may stream literal newlines inside large file content.
+
+    Standard JSON parsing rejects those control characters even when the rest
+    of the function-call object is structurally valid. The dispatch layer should
+    accept them so large write_file/edit_file calls can proceed.
+    """
+    dispatch = ToolDispatch()
+    raw = [
+        {
+            "id": "call_1",
+            "function": {
+                "name": "write_file",
+                "arguments": (
+                    '{"path": "sales_storyboard.html", '
+                    '"content": "<!DOCTYPE html>\n<html lang=\\"en\\">\n'
+                    '<body class=\\"app\\">Sales</body>\n</html>"}'
+                ),
+            },
+        }
+    ]
+
+    [tool_call] = dispatch.parse_tool_calls(raw)
+
+    assert tool_call.name == "write_file"
+    assert tool_call.arguments["path"] == "sales_storyboard.html"
+    assert "<body" in tool_call.arguments["content"]
+    assert "_parse_error" not in tool_call.arguments
+
+
+def test_builtin_append_file_supports_chunked_writes() -> None:
+    """append_file is available so agents do not need giant write_file payloads."""
+    from tools.base import get_all_builtin_tools
+
+    names = {tool.name for tool in get_all_builtin_tools()}
+
+    assert "append_file" in names
+
+
+def test_append_file_writes_chunks(tmp_path: Path) -> None:
+    """append_file can reset first, then add later chunks."""
+    from tools.base import get_all_builtin_tools
+
+    append_tool = next(tool for tool in get_all_builtin_tools() if tool.name == "append_file")
+    target = tmp_path / "large.js"
+
+    first = asyncio.run(append_tool.execute(path=str(target), content="const a = 1;\n", reset=True))
+    second = asyncio.run(append_tool.execute(path=str(target), content="const b = 2;\n"))
+
+    assert "Reset and wrote" in first
+    assert "Appended" in second
+    assert target.read_text(encoding="utf-8") == "const a = 1;\nconst b = 2;\n"
+
+
+def test_write_file_rejects_oversized_content(tmp_path: Path) -> None:
+    """Large writes should become recoverable tool feedback instead of fragile payloads."""
+    from tools.base import get_all_builtin_tools
+
+    write_tool = next(tool for tool in get_all_builtin_tools() if tool.name == "write_file")
+    target = tmp_path / "too-large.html"
+
+    result = asyncio.run(write_tool.execute(path=str(target), content="x" * 13000))
+
+    assert "above write_file" in result
+    assert "append_file" in result
+    assert not target.exists()
+
+
+def test_start_app_preview_accepts_absolute_cwd_inside_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Absolute app paths inside the workspace should pass the cwd guard."""
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "index.html").write_text("<main>ok</main>", encoding="utf-8")
+    monkeypatch.setattr(coding_tools, "_wait_for_url", lambda *_args, **_kwargs: (True, ""))
+
+    sandbox = LocalSandbox(workspace_root=str(tmp_path))
+    with sandbox_context(sandbox):
+        result = asyncio.run(
+            start_app_preview(
+                cwd=str(app_dir),
+                command="true",
+            )
+        )
+
+    assert "preview cwd must stay inside workspace" not in result
